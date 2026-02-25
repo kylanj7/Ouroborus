@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Database, Plus, Download, Terminal } from 'lucide-react'
+import { Database, Plus, Download, Terminal, X } from 'lucide-react'
 import { useDatasetStore } from '../store/datasetStore'
 import { importFromHuggingFace } from '../api/client'
 import { useSSE } from '../hooks/useSSE'
@@ -19,7 +19,8 @@ export default function Datasets() {
   // Find the first actively running dataset to stream its logs (prefer running over pending)
   const runningDataset = datasets.find(ds => ds.status === 'running')
     || datasets.find(ds => ds.status === 'pending')
-  const { logs, status: sseStatus, done } = useSSE(runningDataset?.id ?? null)
+  const { logs, status: sseStatus, done, clear: clearLogs } = useSSE(runningDataset?.id ?? null)
+  const [terminalDismissed, setTerminalDismissed] = useState(false)
 
   useEffect(() => {
     fetchDatasets()
@@ -31,6 +32,13 @@ export default function Datasets() {
       fetchDatasets(page)
     }
   }, [done])
+
+  // Re-show terminal when a new generation starts
+  useEffect(() => {
+    if (runningDataset && !done) {
+      setTerminalDismissed(false)
+    }
+  }, [runningDataset?.id, done])
 
   // Auto-scroll terminal
   useEffect(() => {
@@ -59,8 +67,8 @@ export default function Datasets() {
     }
   }
 
-  // Show terminal only when there's an active stream with data (not stale jobs)
-  const showTerminal = (runningDataset && !done) || (logs.length > 0 && !done)
+  // Show terminal when actively streaming OR when we have logs from a recent generation
+  const showTerminal = !terminalDismissed && ((runningDataset && !done) || logs.length > 0)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -241,13 +249,25 @@ export default function Datasets() {
                   {sseStatus}
                 </span>
               )}
-              {runningDataset && (
+              {runningDataset && !done && (
                 <span style={{
                   width: 6, height: 6, borderRadius: '50%',
                   background: 'var(--accent-green)',
                   animation: 'pulse 2s ease-in-out infinite',
                   display: 'inline-block',
                 }} />
+              )}
+              {done && (
+                <button
+                  onClick={() => { setTerminalDismissed(true); clearLogs() }}
+                  style={{
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    color: 'var(--text-muted)', display: 'flex', padding: '2px',
+                  }}
+                  title="Close terminal"
+                >
+                  <X size={14} />
+                </button>
               )}
             </div>
           </div>
