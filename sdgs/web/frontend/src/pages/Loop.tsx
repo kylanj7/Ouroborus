@@ -192,42 +192,24 @@ export default function Loop() {
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           {!isRunning && (
             <>
-              {hfImportMode ? (
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                  <input
-                    value={hfRepoId}
-                    onChange={e => setHfRepoId(e.target.value)}
-                    placeholder="username/dataset-name"
-                    style={{ ...selectStyle, maxWidth: 260 }}
-                    onKeyDown={e => e.key === 'Enter' && handleHfImport()}
-                  />
-                  <button onClick={handleHfImport} disabled={hfImporting || !hfRepoId.trim()} style={btnStyle('primary')}>
-                    {hfImporting ? 'Importing...' : 'Import'}
-                  </button>
-                  <button onClick={() => { setHfImportMode(false); setHfRepoId('') }} style={btnStyle('secondary')}>
-                    Cancel
-                  </button>
-                </div>
-              ) : (
-                <select
-                  value={selectedDatasetId ?? ''}
-                  onChange={e => {
-                    if (e.target.value === '__hf_import__') {
-                      setHfImportMode(true)
-                      e.target.value = ''
-                    } else {
-                      setSelectedDatasetId(e.target.value ? Number(e.target.value) : null)
-                    }
-                  }}
-                  style={selectStyle}
-                >
-                  <option value="">Select dataset...</option>
-                  {datasets.map(d => (
-                    <option key={d.id} value={d.id}>{d.topic} ({d.actual_size} samples)</option>
-                  ))}
-                  <option value="__hf_import__">Import from HuggingFace...</option>
-                </select>
-              )}
+              <select
+                value={selectedDatasetId ?? ''}
+                onChange={e => {
+                  if (e.target.value === '__hf_import__') {
+                    setHfImportMode(true)
+                    e.target.value = ''
+                  } else {
+                    setSelectedDatasetId(e.target.value ? Number(e.target.value) : null)
+                  }
+                }}
+                style={selectStyle}
+              >
+                <option value="">Select dataset...</option>
+                {datasets.map(d => (
+                  <option key={d.id} value={d.id}>{d.topic} ({d.actual_size} samples)</option>
+                ))}
+                <option value="__hf_import__">Import from HuggingFace...</option>
+              </select>
               <select
                 value={selectedModel}
                 onChange={e => setSelectedModel(e.target.value)}
@@ -263,6 +245,33 @@ export default function Loop() {
           )}
         </div>
       </div>
+
+      {/* HuggingFace Import */}
+      {hfImportMode && !isRunning && (
+        <div style={{ ...cardStyle, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+            Import from HuggingFace
+          </div>
+          <input
+            value={hfRepoId}
+            onChange={e => setHfRepoId(e.target.value)}
+            placeholder="e.g. username/dataset-name"
+            onKeyDown={e => e.key === 'Enter' && handleHfImport()}
+            autoFocus
+            style={{
+              flex: 1, padding: '10px 14px', borderRadius: 'var(--radius-sm)',
+              background: 'var(--bg-input)', color: 'var(--text-primary)',
+              border: '1px solid var(--border-subtle)', fontSize: 14,
+            }}
+          />
+          <button onClick={handleHfImport} disabled={hfImporting || !hfRepoId.trim()} style={btnStyle('primary')}>
+            {hfImporting ? 'Importing...' : 'Import'}
+          </button>
+          <button onClick={() => { setHfImportMode(false); setHfRepoId('') }} style={btnStyle('secondary')}>
+            Cancel
+          </button>
+        </div>
+      )}
 
       {/* Training Parameters (collapsible) */}
       {!isRunning && (
