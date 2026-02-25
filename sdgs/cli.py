@@ -173,6 +173,111 @@ def tasks():
         click.echo(f"  {p.stem:25s}  {config.get('name', '')}")
 
 
+@cli.group()
+def loop():
+    """Evolution loop — autonomous generate → train → evaluate → feedback cycle."""
+
+
+@loop.command("start")
+@click.option("--config", "config_path", default=None, help="Path to loop config YAML (default: configs/loop.yaml)")
+def loop_start(config_path):
+    """Start a new evolution loop."""
+    import logging
+    from .loop.config import load_loop_config
+    from .loop.orchestrator import Orchestrator
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
+    cfg = load_loop_config(config_path)
+    orch = Orchestrator(config=cfg)
+
+    click.echo(f"Starting evolution loop (max {cfg.evolution.max_evolutions} evolutions, target {cfg.evolution.target_accuracy}%)")
+    click.echo(f"  QFTL: {cfg.qftl.base_url}")
+    click.echo(f"  Domains: {', '.join(cfg.generation.domains)}")
+    click.echo(f"  Model: {cfg.training.model_config}")
+    click.echo()
+
+    loop_id = orch.run()
+    state = orch.store.get_loop(loop_id)
+    click.echo()
+    click.echo(f"Loop {loop_id} finished — {state.status}")
+    if state.stop_reason:
+        click.echo(f"  Reason: {state.stop_reason}")
+    if state.evolutions:
+        last = state.evolutions[-1]
+        click.echo(f"  Final score: {last.overall_score:.1f}%")
+        click.echo(f"  Best score:  {last.best_score_so_far:.1f}%")
+        click.echo(f"  Evolutions:  {len(state.evolutions)}")
+
+
+@loop.command("status")
+def loop_status():
+    """Show the status of the most recent evolution loop."""
+    from .loop.state import StateStore
+
+    store = StateStore()
+    state = store.get_latest_loop()
+    if not state:
+        click.echo("No loop runs found.")
+        return
+
+    click.echo(f"Loop: {state.loop_id}")
+    click.echo(f"  Status:    {state.status}")
+    click.echo(f"  Evolution: {state.current_evolution}")
+    click.echo(f"  Stage:     {state.current_stage}")
+    if state.stop_reason:
+        click.echo(f"  Reason:    {state.stop_reason}")
+    click.echo(f"  Started:   {state.created_at}")
+    click.echo(f"  Updated:   {state.updated_at}")
+
+    if state.evolutions:
+        click.echo()
+        click.echo("  Evolution History:")
+        click.echo(f"  {'Evo':>4}  {'Score':>7}  {'Best':>7}  {'Delta':>7}  {'Regr':>5}  {'Plat':>5}")
+        click.echo(f"  {'---':>4}  {'-----':>7}  {'----':>7}  {'-----':>7}  {'----':>5}  {'----':>5}")
+        for r in state.evolutions:
+            click.echo(
+                f"  {r.evolution:4d}  {r.overall_score:7.1f}  {r.best_score_so_far:7.1f}  "
+                f"{r.delta_from_previous:+7.1f}  {r.consecutive_regressions:5d}  {r.consecutive_plateaus:5d}"
+            )
+
+
+@loop.command("stop")
+def loop_stop():
+    """Request a graceful stop of the currently running loop."""
+    from .loop.state import StateStore
+
+    store = StateStore()
+    state = store.get_active_loop()
+    if not state:
+        click.echo("No active loop to stop.")
+        return
+
+    store.request_stop(state.loop_id)
+    click.echo(f"Stop requested for loop {state.loop_id}")
+    click.echo("The loop will halt after the current stage completes.")
+
+
+@loop.command("history")
+@click.option("--limit", default=10, help="Number of loops to show")
+def loop_history(limit):
+    """Show history of all loop runs."""
+    from .loop.state import StateStore
+
+    store = StateStore()
+    loops = store.list_loops(limit=limit)
+    if not loops:
+        click.echo("No loop runs found.")
+        return
+
+    click.echo(f"{'Loop ID':>20}  {'Status':>10}  {'Evo':>4}  {'Stage':>12}  {'Reason':>20}  {'Created':>20}")
+    click.echo(f"{'-------':>20}  {'------':>10}  {'---':>4}  {'-----':>12}  {'------':>20}  {'-------':>20}")
+    for row in loops:
+        click.echo(
+            f"  {row['loop_id']:18s}  {row['status']:>10}  {row['current_evolution']:4d}  "
+            f"{row['current_stage']:>12}  {(row['stop_reason'] or ''):>20}  {row['created_at'][:19]:>20}"
+        )
+
+
 @cli.command()
 @click.option("--host", default="0.0.0.0", help="Host to bind to")
 @click.option("--port", default=8000, type=int, help="Port to bind to")

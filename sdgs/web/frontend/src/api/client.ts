@@ -542,3 +542,61 @@ export const pushModel = (data: PushModelRequest) =>
 
 // Health
 export const getHealth = () => request<{ status: string }>('/health')
+
+// Evolution Loop
+export interface EvolutionSummary {
+  evolution: number
+  overall_score: number
+  factual_accuracy: number
+  completeness: number
+  technical_precision: number
+  best_score_so_far: number
+  delta_from_previous: number
+  consecutive_regressions: number
+  consecutive_plateaus: number
+  target_reached: boolean
+  domain_scores: Record<string, Record<string, number>>
+  started_at: string | null
+  completed_at: string | null
+}
+
+export interface LoopStatus {
+  loop_id: string
+  status: string
+  current_evolution: number
+  current_stage: string
+  stop_reason: string | null
+  stop_requested: boolean
+  created_at: string
+  updated_at: string
+  evolutions: EvolutionSummary[]
+  config_snapshot: Record<string, unknown>
+}
+
+export interface LoopListEntry {
+  loop_id: string
+  status: string
+  current_evolution: number
+  current_stage: string
+  stop_reason: string | null
+  created_at: string
+  updated_at: string
+}
+
+export const startLoop = (configPath?: string) =>
+  request<{ status: string; loop_id: string }>('/loop/start', {
+    method: 'POST',
+    body: JSON.stringify({ config_path: configPath ?? null }),
+  })
+
+export const stopLoop = () =>
+  request<{ status: string; loop_id: string }>('/loop/stop', { method: 'POST' })
+
+export const getLoopStatus = () =>
+  request<LoopStatus | null>('/loop/status')
+
+export const getLoopStatusById = (loopId: string) =>
+  request<LoopStatus>(`/loop/status/${loopId}`)
+
+export const listLoops = (limit = 20) =>
+  request<LoopListEntry[]>(`/loop/list?limit=${limit}`)

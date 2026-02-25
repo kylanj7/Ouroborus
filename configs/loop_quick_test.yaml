@@ -1,0 +1,26 @@
+qftl:
+  base_url: "http://localhost:8000"
+  username: ""    # Set your SDGS username
+  password: ""    # Set your SDGS password
+  poll_interval_seconds: 10
+  request_timeout_seconds: 1800
+
+evolution:
+  max_evolutions: 1
+  target_accuracy: 90.0
+  stage_retry_limit: 1
+
+generation:
+  initial_samples_per_domain: 20
+  provider: "ollama"
+  task_config: "paper_qa"
+  domains:
+    - quantum
+
+training:
+  model_config: "qwen2.5-7b-instruct"
+  training_config: "quick_test"
+
+evaluation:
+  sample_count: 5
+  judge_model: "nemotron-3-nano:latest"

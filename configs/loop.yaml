@@ -1,0 +1,41 @@
+qftl:
+  base_url: "http://localhost:8000"
+  username: ""    # Set your SDGS username
+  password: ""    # Set your SDGS password
+  poll_interval_seconds: 30
+  request_timeout_seconds: 600
+
+evolution:
+  max_evolutions: 10
+  target_accuracy: 70.0
+  regression_patience: 3
+  convergence_threshold: 2.0
+  convergence_patience: 3
+  stage_retry_limit: 2
+
+generation:
+  initial_samples_per_domain: 500
+  weak_domain_bonus_samples: 200
+  provider: "openai"
+  task_config: "paper_qa"
+  domains:
+    - quantum
+    - physics
+    - chemistry
+    - biology
+    - math
+
+training:
+  model_config: "qwen2.5-14b-instruct"
+  training_config: "default"
+
+evaluation:
+  sample_count: 50
+  judge_model: "nemotron-3-nano:latest"
+
+feedback:
+  weak_score_threshold: 70
+  dimension_weights:
+    factual_accuracy: 0.5
+    completeness: 0.3
+    technical_precision: 0.2

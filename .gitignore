@@ -13,4 +13,8 @@ data/*.jsonl
 !data/.gitkeep
 *.jsonl
 node_modules/
+sdgs/web/frontend/dist/
 sdgs_web.db
+loop_state.db
+outputs/
+models/

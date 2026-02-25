@@ -16,6 +16,7 @@ import EvaluationDetail from './pages/EvaluationDetail'
 import MergeConvert from './pages/MergeConvert'
 import PushModel from './pages/PushModel'
 import Settings from './pages/Settings'
+import Loop from './pages/Loop'
 
 export default function App() {
   return (
@@ -40,6 +41,7 @@ export default function App() {
             <Route path="/training/:id" element={<TrainingDetail />} />
             <Route path="/evaluations" element={<Evaluations />} />
             <Route path="/evaluations/:id" element={<EvaluationDetail />} />
+            <Route path="/loop" element={<Loop />} />
             <Route path="/settings" element={<Settings />} />
           </Route>
         </Route>
