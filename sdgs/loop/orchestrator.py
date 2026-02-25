@@ -32,17 +32,31 @@ class Orchestrator:
         config: LoopConfig | None = None,
         config_path: str | Path | None = None,
         state_store: StateStore | None = None,
+        emit_fn: callable | None = None,
     ):
         self.cfg = config or load_loop_config(config_path)
         self.store = state_store or StateStore()
         self.bridge = QFTLBridge(self.cfg.qftl)
         self._loop_id: str | None = None
+        self._emit_fn = emit_fn
+
+    # ------------------------------------------------------------------
+    # SSE event helper
+    # ------------------------------------------------------------------
+
+    def _emit(self, event: dict):
+        """Push a structured event to the SSE stream (if emit_fn is set)."""
+        if self._emit_fn and self._loop_id:
+            try:
+                self._emit_fn(self._loop_id, event)
+            except Exception:
+                pass  # never let SSE problems break the loop
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    def run(self) -> str:
+    def run(self, loop_id: str | None = None) -> str:
         """Run the full evolution loop until a termination condition is met.
 
         Returns the loop_id.
@@ -50,10 +64,13 @@ class Orchestrator:
         if not self.bridge.health_check():
             raise EvolutionError("QFTL server is not reachable at %s" % self.cfg.qftl.base_url)
 
-        self._loop_id = f"loop-{uuid.uuid4().hex[:12]}"
+        self._loop_id = loop_id or f"loop-{uuid.uuid4().hex[:12]}"
         state = self.store.create_loop(self._loop_id, self._config_snapshot())
         log.info("Starting evolution loop %s (max %d evolutions, target %.1f%%)",
                  self._loop_id, self.cfg.evolution.max_evolutions, self.cfg.evolution.target_accuracy)
+
+        self._emit({"type": "status", "data": "running"})
+        self._emit({"type": "config", "data": self._config_snapshot()})
 
         feedback: FeedbackSignal | None = None
 
@@ -61,6 +78,7 @@ class Orchestrator:
             if self._should_stop():
                 self.store.finish_loop(self._loop_id, StopReason.MANUAL_STOP)
                 log.info("Loop %s: manual stop requested after evo %d", self._loop_id, evo - 1)
+                self._emit({"type": "done", "stop_reason": "MANUAL_STOP"})
                 return self._loop_id
 
             try:
@@ -68,6 +86,8 @@ class Orchestrator:
             except EvolutionError as e:
                 log.error("Loop %s: evo %d failed irrecoverably: %s", self._loop_id, evo, e)
                 self.store.finish_loop(self._loop_id, StopReason.ABORTED)
+                self._emit({"type": "error", "data": str(e)})
+                self._emit({"type": "done", "stop_reason": "ABORTED"})
                 return self._loop_id
 
             if feedback.stop:
@@ -75,10 +95,12 @@ class Orchestrator:
                 self.store.finish_loop(self._loop_id, reason)
                 log.info("Loop %s: terminated after evo %d — %s (score=%.1f)",
                          self._loop_id, evo, reason.value, feedback.overall_score)
+                self._emit({"type": "done", "stop_reason": reason.value})
                 return self._loop_id
 
         self.store.finish_loop(self._loop_id, StopReason.MAX_EVOLUTIONS)
         log.info("Loop %s: reached max evolutions", self._loop_id)
+        self._emit({"type": "done", "stop_reason": "MAX_EVOLUTIONS"})
         return self._loop_id
 
     def resume(self, loop_id: str) -> str:
@@ -124,40 +146,50 @@ class Orchestrator:
     # ------------------------------------------------------------------
 
     def _run_evolution(self, evo: int, prev_feedback: FeedbackSignal | None) -> FeedbackSignal:
-        """Execute one full evolution: generate → format → transfer → train → convert → evaluate → analyze."""
+        """Execute one full evolution: generate -> format -> transfer -> train -> convert -> evaluate -> analyze."""
         started_at = datetime.datetime.utcnow().isoformat()
         state = self.store.get_loop(self._loop_id)
         previous_records = state.evolutions if state else []
         retry_limit = self.cfg.evolution.stage_retry_limit
 
+        def _stage(stage: Stage):
+            self.store.update_stage(self._loop_id, evo, stage)
+            self._emit({"type": "stage", "stage": stage.value, "evolution": evo})
+            self._emit({"type": "log", "data": f"[evo {evo}] Starting stage: {stage.value}"})
+
         # --- 1. GENERATE ---
-        self.store.update_stage(self._loop_id, evo, Stage.GENERATING)
+        _stage(Stage.GENERATING)
         dataset_path = self._stage_generate(evo, prev_feedback, retries=retry_limit)
+        self._emit({"type": "log", "data": f"[evo {evo}] Domain generation complete: {dataset_path.name}"})
 
         # --- 2. FORMAT ---
-        self.store.update_stage(self._loop_id, evo, Stage.FORMATTING)
+        _stage(Stage.FORMATTING)
         formatted_path, config_yaml, config_name = self._stage_format(evo, dataset_path)
 
         # --- 3. TRANSFER ---
-        self.store.update_stage(self._loop_id, evo, Stage.TRANSFERRING)
+        _stage(Stage.TRANSFERRING)
         self._stage_transfer(formatted_path, config_yaml, config_name, retries=retry_limit)
 
         # --- 4. TRAIN ---
-        self.store.update_stage(self._loop_id, evo, Stage.TRAINING)
+        _stage(Stage.TRAINING)
+        self._emit({"type": "log", "data": f"[evo {evo}] Training started on QFTL"})
         train_result = self._stage_train(config_name, str(formatted_path), retries=retry_limit)
+        self._emit({"type": "log", "data": f"[evo {evo}] Training complete"})
 
         # --- 5. CONVERT ---
-        self.store.update_stage(self._loop_id, evo, Stage.CONVERTING)
+        _stage(Stage.CONVERTING)
         convert_result = self._stage_convert(train_result, retries=retry_limit)
 
         # --- 6. EVALUATE ---
-        self.store.update_stage(self._loop_id, evo, Stage.EVALUATING)
+        _stage(Stage.EVALUATING)
+        self._emit({"type": "log", "data": f"[evo {evo}] Evaluation started"})
         eval_result = self._stage_evaluate(
             convert_result, str(formatted_path), train_result, retries=retry_limit,
         )
+        self._emit({"type": "log", "data": f"[evo {evo}] Evaluation complete"})
 
         # --- 7. ANALYZE ---
-        self.store.update_stage(self._loop_id, evo, Stage.ANALYZING)
+        _stage(Stage.ANALYZING)
         feedback = analyze_evaluation(
             detailed_results=eval_result.detailed_results,
             previous_records=previous_records,
@@ -180,11 +212,26 @@ class Orchestrator:
         )
         self.store.save_evolution(self._loop_id, record)
 
+        # Emit metrics for the convergence chart
+        self._emit({
+            "type": "metrics",
+            "evolution": evo,
+            "overall_score": record.overall_score,
+            "factual_accuracy": record.factual_accuracy,
+            "completeness": record.completeness,
+            "technical_precision": record.technical_precision,
+            "best_score_so_far": record.best_score_so_far,
+            "delta_from_previous": record.delta_from_previous,
+            "target_reached": record.target_reached,
+            "domain_scores": record.domain_scores,
+        })
+
         log.info(
             "Evo %d complete: score=%.1f  best=%.1f  delta=%.1f  stop=%s",
             evo, feedback.overall_score, feedback.best_score_so_far,
             feedback.delta_from_previous, feedback.stop,
         )
+        self._emit({"type": "log", "data": f"[evo {evo}] Complete: score={feedback.overall_score:.1f} best={feedback.best_score_so_far:.1f} delta={feedback.delta_from_previous:+.1f}"})
         return feedback
 
     # ------------------------------------------------------------------
@@ -222,7 +269,7 @@ class Orchestrator:
                         api_key=None,
                         task_name=self.cfg.generation.task_config,
                         max_papers=max(budget // 25, 5),
-                        top_n=min(budget // 50, 10),
+                        top_n=max(min(budget // 50, 10), 1),
                         output_path=str(output_path),
                         collect_only=False,
                     )

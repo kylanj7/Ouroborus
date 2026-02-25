@@ -600,3 +600,12 @@ export const getLoopStatusById = (loopId: string) =>
 
 export const listLoops = (limit = 20) =>
   request<LoopListEntry[]>(`/loop/list?limit=${limit}`)
+
+export interface LoopConfigEntry {
+  name: string
+  path: string
+  display_name: string
+}
+
+export const listLoopConfigs = () =>
+  request<LoopConfigEntry[]>('/loop/configs')

@@ -1,7 +1,10 @@
 """REST endpoints for managing the evolution loop."""
 from __future__ import annotations
 
+import glob as globmod
 import threading
+import uuid
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -10,11 +13,13 @@ from pydantic import BaseModel
 from ...loop.config import load_loop_config
 from ...loop.orchestrator import Orchestrator
 from ...loop.state import StateStore
+from ..services.job_runner import init_loop_stream, emit_loop_event, finish_loop_stream
 
 router = APIRouter()
 
 _store = StateStore()
 _running_threads: dict[str, threading.Thread] = {}
+_BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
 
 
 # ------------------------------------------------------------------
@@ -75,23 +80,22 @@ async def start_loop(req: LoopStartRequest):
     if active:
         raise HTTPException(status_code=409, detail=f"Loop {active.loop_id} is already running")
 
+    loop_id = f"loop-{uuid.uuid4().hex[:12]}"
     cfg = load_loop_config(req.config_path)
-    orch = Orchestrator(config=cfg, state_store=_store)
+    orch = Orchestrator(config=cfg, state_store=_store, emit_fn=emit_loop_event)
+
+    init_loop_stream(loop_id)
 
     def _run():
         import logging
         logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
-        orch.run()
+        try:
+            orch.run(loop_id=loop_id)
+        finally:
+            finish_loop_stream(loop_id)
 
     t = threading.Thread(target=_run, daemon=True)
     t.start()
-
-    # Wait briefly to let loop_id be assigned
-    import time
-    time.sleep(0.5)
-
-    active = _store.get_active_loop()
-    loop_id = active.loop_id if active else "starting..."
     _running_threads[loop_id] = t
 
     return {"status": "started", "loop_id": loop_id}
@@ -136,6 +140,18 @@ async def list_loops(limit: int = 20):
 # ------------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------------
+
+@router.get("/configs")
+async def list_configs():
+    """List available loop config files."""
+    configs_dir = _BASE_DIR / "configs"
+    results = []
+    for p in sorted(configs_dir.glob("loop*.yaml")):
+        name = p.stem
+        display_name = name.replace("_", " ").replace("loop ", "Loop ").title()
+        results.append({"name": name, "path": str(p), "display_name": display_name})
+    return results
+
 
 def _state_to_response(state) -> LoopStatusResponse:
     evolutions = []

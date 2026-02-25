@@ -5,9 +5,15 @@ import json
 from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 
-from ..services.job_runner import get_job_queue, get_job_logs, get_training_queue, get_training_logs
+from ..services.job_runner import get_job_queue, get_job_logs, get_training_queue, get_training_logs, get_loop_queue, get_loop_logs
 
 router = APIRouter()
+
+_SSE_HEADERS = {
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+}
 
 
 @router.get("/datasets/{dataset_id}")
@@ -56,15 +62,7 @@ async def dataset_events(dataset_id: int, last_id: int = Query(0, ge=0)):
             except asyncio.CancelledError:
                 return
 
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
+    return StreamingResponse(event_generator(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
 
 @router.get("/training/{run_id}")
@@ -104,12 +102,44 @@ async def training_events(run_id: int, last_id: int = Query(0, ge=0)):
             except asyncio.CancelledError:
                 return
 
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
+    return StreamingResponse(event_generator(), media_type="text/event-stream", headers=_SSE_HEADERS)
+
+
+@router.get("/loop/{loop_id}")
+async def loop_events(loop_id: str, last_id: int = Query(0, ge=0)):
+    """SSE stream for a running evolution loop."""
+
+    async def event_generator():
+        stored = get_loop_logs(loop_id)
+        event_id = len(stored)
+
+        for i, item in enumerate(stored):
+            if i < last_id:
+                continue
+            yield f"id: {i}\ndata: {json.dumps(item)}\n\n"
+
+        q = get_loop_queue(loop_id)
+        if q is None:
+            yield f"id: {event_id}\ndata: {json.dumps({'type': 'done', 'data': 'stream_end'})}\n\n"
+            return
+
+        while True:
+            try:
+                item = None
+                try:
+                    item = q.get_nowait()
+                except Exception:
+                    await asyncio.sleep(0.1)
+                    continue
+
+                if item is None:
+                    yield f"id: {event_id}\ndata: {json.dumps({'type': 'done', 'data': 'stream_end'})}\n\n"
+                    return
+
+                yield f"id: {event_id}\ndata: {json.dumps(item)}\n\n"
+                event_id += 1
+
+            except asyncio.CancelledError:
+                return
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream", headers=_SSE_HEADERS)

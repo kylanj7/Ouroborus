@@ -13,14 +13,13 @@ interface LoopState {
   history: LoopListEntry[]
   loading: boolean
   error: string | null
-  pollInterval: ReturnType<typeof setInterval> | null
+  activeLoopId: string | null
 
   fetchStatus: () => Promise<void>
   fetchHistory: () => Promise<void>
-  start: (configPath?: string) => Promise<void>
+  start: (configPath?: string) => Promise<string | null>
   stop: () => Promise<void>
-  startPolling: () => void
-  stopPolling: () => void
+  setActiveLoopId: (id: string | null) => void
 }
 
 export const useLoopStore = create<LoopState>((set, get) => ({
@@ -28,7 +27,7 @@ export const useLoopStore = create<LoopState>((set, get) => ({
   history: [],
   loading: false,
   error: null,
-  pollInterval: null,
+  activeLoopId: null,
 
   fetchStatus: async () => {
     try {
@@ -51,11 +50,14 @@ export const useLoopStore = create<LoopState>((set, get) => ({
   start: async (configPath?: string) => {
     set({ loading: true, error: null })
     try {
-      await startLoop(configPath)
+      const res = await startLoop(configPath)
+      const loopId = res.loop_id
+      set({ activeLoopId: loopId })
       await get().fetchStatus()
-      get().startPolling()
+      return loopId
     } catch (e: any) {
       set({ error: e.message })
+      return null
     } finally {
       set({ loading: false })
     }
@@ -73,18 +75,7 @@ export const useLoopStore = create<LoopState>((set, get) => ({
     }
   },
 
-  startPolling: () => {
-    const existing = get().pollInterval
-    if (existing) clearInterval(existing)
-    const interval = setInterval(() => {
-      get().fetchStatus()
-    }, 5000)
-    set({ pollInterval: interval })
-  },
-
-  stopPolling: () => {
-    const interval = get().pollInterval
-    if (interval) clearInterval(interval)
-    set({ pollInterval: null })
+  setActiveLoopId: (id: string | null) => {
+    set({ activeLoopId: id })
   },
 }))

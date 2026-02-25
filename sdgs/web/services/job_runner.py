@@ -527,6 +527,59 @@ def _run_training_job(
         threading.Thread(target=_cleanup, daemon=True).start()
 
 
+## =====================================================================
+# Loop SSE infrastructure (string-keyed, no DB — orchestrator handles state)
+# =====================================================================
+
+_loop_queues: dict[str, queue.Queue] = {}
+_loop_logs: dict[str, list[dict]] = {}
+_loop_lock = threading.Lock()
+
+
+def init_loop_stream(loop_id: str):
+    """Create a queue + log buffer for a loop before starting the thread."""
+    with _loop_lock:
+        _loop_queues[loop_id] = queue.Queue()
+        _loop_logs[loop_id] = []
+
+
+def emit_loop_event(loop_id: str, event: dict):
+    """Push an event to the loop's SSE queue and log buffer."""
+    with _loop_lock:
+        logs = _loop_logs.get(loop_id)
+        if logs is not None:
+            logs.append(event)
+        q = _loop_queues.get(loop_id)
+    if q is not None:
+        q.put(event)
+
+
+def get_loop_queue(loop_id: str) -> queue.Queue | None:
+    with _loop_lock:
+        return _loop_queues.get(loop_id)
+
+
+def get_loop_logs(loop_id: str) -> list[dict]:
+    with _loop_lock:
+        return list(_loop_logs.get(loop_id, []))
+
+
+def finish_loop_stream(loop_id: str):
+    """Send None sentinel and schedule cleanup after 2 minutes."""
+    q = get_loop_queue(loop_id)
+    if q is not None:
+        q.put(None)
+
+    def _cleanup():
+        import time
+        time.sleep(120)
+        with _loop_lock:
+            _loop_queues.pop(loop_id, None)
+            _loop_logs.pop(loop_id, None)
+
+    threading.Thread(target=_cleanup, daemon=True).start()
+
+
 def shutdown_runner():
     """Shut down both thread pool executors."""
     _executor.shutdown(wait=False)
