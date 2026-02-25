@@ -16,8 +16,9 @@ export default function Datasets() {
   const [importError, setImportError] = useState('')
   const logEndRef = useRef<HTMLDivElement>(null)
 
-  // Find the first running dataset to stream its logs
-  const runningDataset = datasets.find(ds => ds.status === 'running' || ds.status === 'pending')
+  // Find the first actively running dataset to stream its logs (prefer running over pending)
+  const runningDataset = datasets.find(ds => ds.status === 'running')
+    || datasets.find(ds => ds.status === 'pending')
   const { logs, status: sseStatus, done } = useSSE(runningDataset?.id ?? null)
 
   useEffect(() => {
@@ -218,7 +219,7 @@ export default function Datasets() {
           borderRadius: 'var(--radius-md)',
           display: 'flex',
           flexDirection: 'column',
-          maxHeight: '40vh',
+          height: '350px',
         }}>
           <div style={{
             display: 'flex',
