@@ -583,17 +583,33 @@ export interface LoopListEntry {
   updated_at: string
 }
 
-export const startLoop = (params: {
+export interface LoopStartParams {
   config_path?: string
   dataset_id: number
   model_config?: string
-}) =>
+  learning_rate?: number
+  num_epochs?: number
+  batch_size?: number
+  gradient_accumulation_steps?: number
+  max_steps?: number
+  lora_rank?: number
+  lora_alpha?: number
+}
+
+export const startLoop = (params: LoopStartParams) =>
   request<{ status: string; loop_id: string }>('/loop/start', {
     method: 'POST',
     body: JSON.stringify({
       config_path: params.config_path ?? null,
       dataset_id: params.dataset_id,
       model_config: params.model_config ?? '',
+      learning_rate: params.learning_rate ?? null,
+      num_epochs: params.num_epochs ?? null,
+      batch_size: params.batch_size ?? null,
+      gradient_accumulation_steps: params.gradient_accumulation_steps ?? null,
+      max_steps: params.max_steps ?? null,
+      lora_rank: params.lora_rank ?? null,
+      lora_alpha: params.lora_alpha ?? null,
     }),
   })
 

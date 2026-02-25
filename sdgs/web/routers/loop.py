@@ -35,6 +35,14 @@ class LoopStartRequest(BaseModel):
     config_path: str | None = None
     dataset_id: int | None = None
     model_config: str = ""
+    # Training hyperparameter overrides (None = use config default)
+    learning_rate: float | None = None
+    num_epochs: int | None = None
+    batch_size: int | None = None
+    gradient_accumulation_steps: int | None = None
+    max_steps: int | None = None
+    lora_rank: int | None = None
+    lora_alpha: int | None = None
 
 
 class EvolutionSummary(BaseModel):
@@ -116,6 +124,18 @@ async def start_loop(
     if req.model_config:
         cfg.training.model_config = req.model_config
 
+    # Build parameter overrides from non-None hyperparams
+    _override_fields = {
+        "learning_rate": req.learning_rate,
+        "num_train_epochs": req.num_epochs,
+        "per_device_train_batch_size": req.batch_size,
+        "gradient_accumulation_steps": req.gradient_accumulation_steps,
+        "max_steps": req.max_steps,
+        "lora_rank": req.lora_rank,
+        "lora_alpha": req.lora_alpha,
+    }
+    parameter_overrides = {k: v for k, v in _override_fields.items() if v is not None} or None
+
     orch = Orchestrator(
         config=cfg,
         state_store=_store,
@@ -123,6 +143,7 @@ async def start_loop(
         initial_dataset_path=initial_dataset_path,
         dataset_name=dataset_name,
         dataset_id=dataset_id,
+        parameter_overrides=parameter_overrides,
     )
 
     init_loop_stream(loop_id)

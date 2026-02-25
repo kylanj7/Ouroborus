@@ -6,6 +6,7 @@ import {
   listLoops,
   type LoopStatus,
   type LoopListEntry,
+  type LoopStartParams,
 } from '../api/client'
 
 interface LoopState {
@@ -17,7 +18,7 @@ interface LoopState {
 
   fetchStatus: () => Promise<void>
   fetchHistory: () => Promise<void>
-  start: (params: { config_path?: string; dataset_id: number; model_config?: string }) => Promise<string | null>
+  start: (params: LoopStartParams) => Promise<string | null>
   stop: () => Promise<void>
   setActiveLoopId: (id: string | null) => void
 }
@@ -47,7 +48,7 @@ export const useLoopStore = create<LoopState>((set, get) => ({
     }
   },
 
-  start: async (params: { config_path?: string; dataset_id: number; model_config?: string }) => {
+  start: async (params: LoopStartParams) => {
     set({ loading: true, error: null })
     try {
       const res = await startLoop(params)

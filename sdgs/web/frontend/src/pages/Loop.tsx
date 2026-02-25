@@ -2,14 +2,14 @@ import { useEffect, useRef, useState } from 'react'
 import { useLoopStore } from '../store/loopStore'
 import { useLoopSSE, LoopMetrics } from '../hooks/useLoopSSE'
 import {
-  listLoopConfigs, getDatasets, getConfigs,
+  listLoopConfigs, getDatasets, getConfigs, importFromHuggingFace,
   type LoopConfigEntry, type EvolutionSummary, type Dataset, type ConfigInfo,
 } from '../api/client'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   ReferenceLine,
 } from 'recharts'
-import { Play, Square, RefreshCw, CheckCircle, AlertTriangle, XCircle, Clock } from 'lucide-react'
+import { Play, Square, RefreshCw, CheckCircle, AlertTriangle, XCircle, Clock, ChevronDown, ChevronUp } from 'lucide-react'
 
 const STAGES_DEFAULT = [
   { key: 'generating', label: 'Generate' },
@@ -60,6 +60,17 @@ export default function Loop() {
   const [selectedDatasetId, setSelectedDatasetId] = useState<number | null>(null)
   const [modelConfigs, setModelConfigs] = useState<ConfigInfo[]>([])
   const [selectedModel, setSelectedModel] = useState<string>('')
+  const [showParams, setShowParams] = useState(false)
+  const [learningRate, setLearningRate] = useState(0.00005)
+  const [numEpochs, setNumEpochs] = useState(1)
+  const [batchSize, setBatchSize] = useState(4)
+  const [gradAccumSteps, setGradAccumSteps] = useState(4)
+  const [maxSteps, setMaxSteps] = useState(-1)
+  const [loraRank, setLoraRank] = useState(16)
+  const [loraAlpha, setLoraAlpha] = useState(16)
+  const [hfImportMode, setHfImportMode] = useState(false)
+  const [hfRepoId, setHfRepoId] = useState('')
+  const [hfImporting, setHfImporting] = useState(false)
   const logEndRef = useRef<HTMLDivElement>(null)
 
   // Load configs + initial data
@@ -139,7 +150,33 @@ export default function Loop() {
       config_path: selectedConfig || undefined,
       dataset_id: selectedDatasetId,
       model_config: selectedModel || undefined,
+      learning_rate: learningRate,
+      num_epochs: numEpochs,
+      batch_size: batchSize,
+      gradient_accumulation_steps: gradAccumSteps,
+      max_steps: maxSteps,
+      lora_rank: loraRank,
+      lora_alpha: loraAlpha,
     })
+  }
+
+  const handleHfImport = async () => {
+    if (!hfRepoId.trim()) return
+    setHfImporting(true)
+    try {
+      const ds = await importFromHuggingFace({ repo_id: hfRepoId.trim() })
+      // Refresh datasets and auto-select the new one
+      const r = await getDatasets(1)
+      const completed = r.datasets.filter(d => d.status === 'completed')
+      setDatasets(completed)
+      setSelectedDatasetId(ds.id)
+      setHfImportMode(false)
+      setHfRepoId('')
+    } catch (e: any) {
+      alert(`Import failed: ${e.message}`)
+    } finally {
+      setHfImporting(false)
+    }
   }
 
   return (
@@ -155,16 +192,42 @@ export default function Loop() {
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           {!isRunning && (
             <>
-              <select
-                value={selectedDatasetId ?? ''}
-                onChange={e => setSelectedDatasetId(e.target.value ? Number(e.target.value) : null)}
-                style={selectStyle}
-              >
-                <option value="">Select dataset...</option>
-                {datasets.map(d => (
-                  <option key={d.id} value={d.id}>{d.topic} ({d.actual_size} samples)</option>
-                ))}
-              </select>
+              {hfImportMode ? (
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <input
+                    value={hfRepoId}
+                    onChange={e => setHfRepoId(e.target.value)}
+                    placeholder="username/dataset-name"
+                    style={{ ...selectStyle, maxWidth: 260 }}
+                    onKeyDown={e => e.key === 'Enter' && handleHfImport()}
+                  />
+                  <button onClick={handleHfImport} disabled={hfImporting || !hfRepoId.trim()} style={btnStyle('primary')}>
+                    {hfImporting ? 'Importing...' : 'Import'}
+                  </button>
+                  <button onClick={() => { setHfImportMode(false); setHfRepoId('') }} style={btnStyle('secondary')}>
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <select
+                  value={selectedDatasetId ?? ''}
+                  onChange={e => {
+                    if (e.target.value === '__hf_import__') {
+                      setHfImportMode(true)
+                      e.target.value = ''
+                    } else {
+                      setSelectedDatasetId(e.target.value ? Number(e.target.value) : null)
+                    }
+                  }}
+                  style={selectStyle}
+                >
+                  <option value="">Select dataset...</option>
+                  {datasets.map(d => (
+                    <option key={d.id} value={d.id}>{d.topic} ({d.actual_size} samples)</option>
+                  ))}
+                  <option value="__hf_import__">Import from HuggingFace...</option>
+                </select>
+              )}
               <select
                 value={selectedModel}
                 onChange={e => setSelectedModel(e.target.value)}
@@ -200,6 +263,30 @@ export default function Loop() {
           )}
         </div>
       </div>
+
+      {/* Training Parameters (collapsible) */}
+      {!isRunning && (
+        <div style={{ ...cardStyle, marginBottom: 12 }}>
+          <div
+            onClick={() => setShowParams(!showParams)}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', userSelect: 'none' }}
+          >
+            {showParams ? <ChevronUp size={16} color="var(--text-muted)" /> : <ChevronDown size={16} color="var(--text-muted)" />}
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>Training Parameters</span>
+          </div>
+          {showParams && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
+              <NumberField label="Learning Rate" value={learningRate} onChange={setLearningRate} step={0.00001} />
+              <NumberField label="Epochs" value={numEpochs} onChange={setNumEpochs} step={1} min={1} />
+              <NumberField label="Batch Size" value={batchSize} onChange={setBatchSize} step={1} min={1} />
+              <NumberField label="Gradient Accumulation Steps" value={gradAccumSteps} onChange={setGradAccumSteps} step={1} min={1} />
+              <NumberField label="Max Steps (-1 for unlimited)" value={maxSteps} onChange={setMaxSteps} step={1} />
+              <NumberField label="LoRA Rank" value={loraRank} onChange={setLoraRank} step={1} min={1} />
+              <NumberField label="LoRA Alpha" value={loraAlpha} onChange={setLoraAlpha} step={1} min={1} />
+            </div>
+          )}
+        </div>
+      )}
 
       {error && (
         <div style={{ padding: '12px 16px', background: 'rgba(255, 126, 179, 0.1)', border: '1px solid var(--status-failed)', borderRadius: 'var(--radius-sm)', marginBottom: 16, color: 'var(--status-failed)', fontSize: 13 }}>
@@ -270,6 +357,15 @@ export default function Loop() {
             {(status?.config_snapshot?.selected_dataset as any)?.name && (
               <Stat label="Dataset" value={(status?.config_snapshot?.selected_dataset as any).name} />
             )}
+            {status?.config_snapshot?.parameter_overrides && (() => {
+              const ov = status.config_snapshot.parameter_overrides as Record<string, number>
+              const labels: Record<string, string> = {
+                learning_rate: 'LR', num_train_epochs: 'Epochs', per_device_train_batch_size: 'Batch',
+                gradient_accumulation_steps: 'GradAccum', max_steps: 'MaxSteps', lora_rank: 'LoRA r', lora_alpha: 'LoRA a',
+              }
+              const parts = Object.entries(ov).map(([k, v]) => `${labels[k] ?? k}: ${v}`)
+              return parts.length > 0 ? <Stat label="Overrides" value={parts.join(', ')} /> : null
+            })()}
             {currentScore != null && (
               <Stat label="Current Score" value={`${currentScore.toFixed(1)}%`} color={currentScore >= targetAccuracy ? 'var(--accent-green)' : 'var(--accent-blue)'} />
             )}
@@ -485,6 +581,28 @@ export default function Loop() {
           50% { opacity: 0.6; }
         }
       `}</style>
+    </div>
+  )
+}
+
+function NumberField({ label, value, onChange, step = 1, min }: {
+  label: string; value: number; onChange: (v: number) => void; step?: number; min?: number
+}) {
+  return (
+    <div>
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>{label}</div>
+      <input
+        type="number"
+        value={value}
+        onChange={e => onChange(Number(e.target.value))}
+        step={step}
+        min={min}
+        style={{
+          width: '100%', padding: '8px 12px', borderRadius: 'var(--radius-sm)',
+          background: 'var(--bg-input)', color: 'var(--text-primary)',
+          border: '1px solid var(--border-subtle)', fontSize: 13,
+        }}
+      />
     </div>
   )
 }

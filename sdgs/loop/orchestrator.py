@@ -37,6 +37,7 @@ class Orchestrator:
         initial_dataset_path: str | None = None,
         dataset_name: str = "",
         dataset_id: int | None = None,
+        parameter_overrides: dict | None = None,
     ):
         self.cfg = config or load_loop_config(config_path)
         self.store = state_store or StateStore()
@@ -47,6 +48,7 @@ class Orchestrator:
         self._initial_dataset_path = initial_dataset_path
         self._dataset_name = dataset_name
         self._dataset_id = dataset_id
+        self._parameter_overrides = parameter_overrides
 
     # ------------------------------------------------------------------
     # SSE event helper
@@ -346,6 +348,7 @@ class Orchestrator:
                     dataset_config_name=dataset_config_name,
                     training_config_name=self.cfg.training.training_config,
                     dataset_path=dataset_path,
+                    parameter_overrides=self._parameter_overrides,
                 )
                 result = self.bridge.poll_training(
                     status.id,
@@ -485,6 +488,7 @@ class Orchestrator:
                 "id": self._dataset_id,
                 "name": self._dataset_name,
             },
+            "parameter_overrides": self._parameter_overrides,
         }
 
     @staticmethod
