@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ChevronDown, ChevronRight, CheckCircle, XCircle, StopCircle, Plus, Trash2, Layers, FileText } from 'lucide-react'
-import { getProviders, cancelDataset, createBatchDatasets, createDatasetFromPapers, ProviderInfo } from '../api/client'
+import { getProviders, getOllamaModels, cancelDataset, createBatchDatasets, createDatasetFromPapers, ProviderInfo } from '../api/client'
 import { useDatasetStore } from '../store/datasetStore'
 import { useSSE } from '../hooks/useSSE'
 
@@ -30,6 +30,7 @@ export default function CreateDataset() {
   const [temperature, setTemperature] = useState(0.7)
   const [maxTokens, setMaxTokens] = useState(4096)
   const [providers, setProviders] = useState<ProviderInfo[]>([])
+  const [ollamaModels, setOllamaModels] = useState<string[]>([])
   const [generating, setGenerating] = useState(false)
   const [datasetId, setDatasetId] = useState<number | null>(null)
   const [error, setError] = useState('')
@@ -49,6 +50,12 @@ export default function CreateDataset() {
   useEffect(() => {
     getProviders().then(setProviders).catch(() => {})
   }, [])
+
+  useEffect(() => {
+    if (provider === 'ollama') {
+      getOllamaModels().then(setOllamaModels).catch(() => setOllamaModels([]))
+    }
+  }, [provider])
 
   useEffect(() => {
     if (logViewerRef.current) {
@@ -311,13 +318,22 @@ export default function CreateDataset() {
               </div>
               <div>
                 <label>Model</label>
-                <input
-                  type="text"
-                  placeholder={selectedProvider?.default_model || '(default)'}
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                  disabled={generating}
-                />
+                {provider === 'ollama' && ollamaModels.length > 0 ? (
+                  <select value={model} onChange={(e) => setModel(e.target.value)} disabled={generating}>
+                    <option value="">Select a model...</option>
+                    {ollamaModels.map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    placeholder={selectedProvider?.default_model || '(default)'}
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    disabled={generating}
+                  />
+                )}
               </div>
             </div>
           ) : (
@@ -350,13 +366,22 @@ export default function CreateDataset() {
               </div>
               <div>
                 <label>Model</label>
-                <input
-                  type="text"
-                  placeholder={selectedProvider?.default_model || '(default)'}
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                  disabled={generating}
-                />
+                {provider === 'ollama' && ollamaModels.length > 0 ? (
+                  <select value={model} onChange={(e) => setModel(e.target.value)} disabled={generating}>
+                    <option value="">Select a model...</option>
+                    {ollamaModels.map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    placeholder={selectedProvider?.default_model || '(default)'}
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    disabled={generating}
+                  />
+                )}
               </div>
             </div>
           )
@@ -379,13 +404,22 @@ export default function CreateDataset() {
             </div>
             <div>
               <label>Model (shared)</label>
-              <input
-                type="text"
-                placeholder={selectedProvider?.default_model || '(default)'}
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                disabled={generating}
-              />
+              {provider === 'ollama' && ollamaModels.length > 0 ? (
+                <select value={model} onChange={(e) => setModel(e.target.value)} disabled={generating}>
+                  <option value="">Select a model...</option>
+                  {ollamaModels.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  placeholder={selectedProvider?.default_model || '(default)'}
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  disabled={generating}
+                />
+              )}
             </div>
           </div>
         )}

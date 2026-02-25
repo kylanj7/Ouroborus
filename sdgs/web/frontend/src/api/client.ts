@@ -194,6 +194,8 @@ export interface ProviderInfo {
 
 export const getProviders = () => request<ProviderInfo[]>('/providers')
 
+export const getOllamaModels = () => request<string[]>('/providers/models')
+
 // Settings - API Keys
 export interface ApiKeyInfo {
   provider_name: string
