@@ -34,12 +34,19 @@ class Orchestrator:
         config_path: str | Path | None = None,
         state_store: StateStore | None = None,
         emit_fn: callable | None = None,
+        initial_dataset_path: str | None = None,
+        dataset_name: str = "",
+        dataset_id: int | None = None,
     ):
         self.cfg = config or load_loop_config(config_path)
         self.store = state_store or StateStore()
         self.bridge = QFTLBridge(self.cfg.qftl)
         self._loop_id: str | None = None
         self._emit_fn = emit_fn
+        self._wandb_run = None
+        self._initial_dataset_path = initial_dataset_path
+        self._dataset_name = dataset_name
+        self._dataset_id = dataset_id
 
     # ------------------------------------------------------------------
     # SSE event helper
@@ -72,6 +79,7 @@ class Orchestrator:
 
         self._emit({"type": "status", "data": "running"})
         self._emit({"type": "config", "data": self._config_snapshot()})
+        self._init_wandb()
 
         feedback: FeedbackSignal | None = None
 
@@ -80,6 +88,7 @@ class Orchestrator:
                 self.store.finish_loop(self._loop_id, StopReason.MANUAL_STOP)
                 log.info("Loop %s: manual stop requested after evo %d", self._loop_id, evo - 1)
                 self._emit({"type": "done", "stop_reason": "MANUAL_STOP"})
+                self._finish_wandb("MANUAL_STOP")
                 return self._loop_id
 
             try:
@@ -89,6 +98,7 @@ class Orchestrator:
                 self.store.finish_loop(self._loop_id, StopReason.ABORTED)
                 self._emit({"type": "error", "data": str(e)})
                 self._emit({"type": "done", "stop_reason": "ABORTED"})
+                self._finish_wandb("ABORTED")
                 return self._loop_id
 
             if feedback.stop:
@@ -97,11 +107,13 @@ class Orchestrator:
                 log.info("Loop %s: terminated after evo %d — %s (score=%.1f)",
                          self._loop_id, evo, reason.value, feedback.overall_score)
                 self._emit({"type": "done", "stop_reason": reason.value})
+                self._finish_wandb(reason.value)
                 return self._loop_id
 
         self.store.finish_loop(self._loop_id, StopReason.MAX_EVOLUTIONS)
         log.info("Loop %s: reached max evolutions", self._loop_id)
         self._emit({"type": "done", "stop_reason": "MAX_EVOLUTIONS"})
+        self._finish_wandb("MAX_EVOLUTIONS")
         return self._loop_id
 
     def resume(self, loop_id: str) -> str:
@@ -170,8 +182,14 @@ class Orchestrator:
             self._emit({"type": "log", "data": f"[evo {evo}] {stage.value} finished in {elapsed:.1f}s"})
             return result
 
-        # --- 1. GENERATE ---
-        dataset_path = _timed(Stage.GENERATING, self._stage_generate, evo, prev_feedback, retries=retry_limit)
+        # --- 1. GENERATE (or use selected dataset for evo 1) ---
+        if evo == 1 and self._initial_dataset_path:
+            dataset_path = Path(self._initial_dataset_path)
+            _stage(Stage.GENERATING)
+            log.info("Using selected dataset: %s (%s)", self._dataset_name, dataset_path)
+            self._emit({"type": "log", "data": f"[evo {evo}] Using selected dataset: {self._dataset_name}"})
+        else:
+            dataset_path = _timed(Stage.GENERATING, self._stage_generate, evo, prev_feedback, retries=retry_limit)
 
         # --- 2. FORMAT ---
         formatted_path, config_yaml, config_name = _timed(Stage.FORMATTING, self._stage_format, evo, dataset_path)
@@ -228,6 +246,7 @@ class Orchestrator:
             "target_reached": record.target_reached,
             "domain_scores": record.domain_scores,
         })
+        self._log_wandb_evolution(evo, record, stage_timings)
 
         evo_elapsed = time.monotonic() - evo_t0
         timing_summary = "  ".join(f"{k}={v:.1f}s" for k, v in stage_timings.items())
@@ -254,6 +273,10 @@ class Orchestrator:
         domains = self.cfg.generation.domains
         base_samples = self.cfg.generation.initial_samples_per_domain
 
+        # Targeted generation for evo 2+: only generate for weak domains
+        if feedback is not None:
+            base_samples = 0
+
         domain_budgets: dict[str, int] = {}
         for domain in domains:
             budget = base_samples
@@ -263,6 +286,11 @@ class Orchestrator:
                         budget += df.sample_budget
                         break
             domain_budgets[domain] = budget
+
+        # Skip domains with 0 budget (strong domains in targeted mode)
+        domain_budgets = {d: b for d, b in domain_budgets.items() if b > 0}
+        if not domain_budgets and feedback is not None:
+            raise EvolutionError("All domains scored well -- no weak domains to generate data for")
 
         domain_paths: dict[str, Path] = {}
         for domain, budget in domain_budgets.items():
@@ -383,6 +411,61 @@ class Orchestrator:
                     raise EvolutionError(f"Evaluation failed after {retries + 1} attempts: {e}")
 
     # ------------------------------------------------------------------
+    # Wandb tracking
+    # ------------------------------------------------------------------
+
+    def _init_wandb(self):
+        """Initialize a wandb run for the evolution loop."""
+        if not self.cfg.wandb.enabled:
+            self._wandb_run = None
+            return
+        try:
+            import wandb
+        except ImportError:
+            log.warning("wandb not installed -- disabling wandb tracking")
+            self._wandb_run = None
+            return
+        self._wandb_run = wandb.init(
+            project=self.cfg.wandb.project,
+            entity=self.cfg.wandb.entity or None,
+            name=self._loop_id,
+            config=self._config_snapshot(),
+            tags=self.cfg.wandb.tags,
+            resume="allow",
+        )
+
+    def _log_wandb_evolution(self, evo: int, record, stage_timings: dict):
+        """Log per-evolution metrics to wandb."""
+        if not self._wandb_run:
+            return
+        import wandb
+        wandb.log({
+            "evolution": evo,
+            "overall_score": record.overall_score,
+            "factual_accuracy": record.factual_accuracy,
+            "completeness": record.completeness,
+            "technical_precision": record.technical_precision,
+            "best_score_so_far": record.best_score_so_far,
+            "delta_from_previous": record.delta_from_previous,
+        }, step=evo)
+        wandb.log({
+            f"timing/{k}": v for k, v in stage_timings.items()
+        }, step=evo)
+        if record.domain_scores:
+            wandb.log({
+                f"domain/{domain}/overall_score": score
+                for domain, score in record.domain_scores.items()
+            }, step=evo)
+
+    def _finish_wandb(self, stop_reason: str):
+        """Finalize the wandb run with summary info."""
+        if not self._wandb_run:
+            return
+        import wandb
+        wandb.summary["stop_reason"] = stop_reason
+        wandb.finish()
+
+    # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
 
@@ -397,6 +480,11 @@ class Orchestrator:
             "training": asdict(self.cfg.training),
             "evaluation": asdict(self.cfg.evaluation),
             "feedback": asdict(self.cfg.feedback),
+            "wandb": asdict(self.cfg.wandb),
+            "selected_dataset": {
+                "id": self._dataset_id,
+                "name": self._dataset_name,
+            },
         }
 
     @staticmethod

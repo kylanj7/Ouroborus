@@ -583,10 +583,18 @@ export interface LoopListEntry {
   updated_at: string
 }
 
-export const startLoop = (configPath?: string) =>
+export const startLoop = (params: {
+  config_path?: string
+  dataset_id: number
+  model_config?: string
+}) =>
   request<{ status: string; loop_id: string }>('/loop/start', {
     method: 'POST',
-    body: JSON.stringify({ config_path: configPath ?? null }),
+    body: JSON.stringify({
+      config_path: params.config_path ?? null,
+      dataset_id: params.dataset_id,
+      model_config: params.model_config ?? '',
+    }),
   })
 
 export const stopLoop = () =>

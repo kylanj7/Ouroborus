@@ -1,15 +1,28 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLoopStore } from '../store/loopStore'
 import { useLoopSSE, LoopMetrics } from '../hooks/useLoopSSE'
-import { listLoopConfigs, type LoopConfigEntry, type EvolutionSummary } from '../api/client'
+import {
+  listLoopConfigs, getDatasets, getConfigs,
+  type LoopConfigEntry, type EvolutionSummary, type Dataset, type ConfigInfo,
+} from '../api/client'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   ReferenceLine,
 } from 'recharts'
 import { Play, Square, RefreshCw, CheckCircle, AlertTriangle, XCircle, Clock } from 'lucide-react'
 
-const STAGES = [
+const STAGES_DEFAULT = [
   { key: 'generating', label: 'Generate' },
+  { key: 'formatting', label: 'Format' },
+  { key: 'transferring', label: 'Transfer' },
+  { key: 'training', label: 'Train' },
+  { key: 'converting', label: 'Convert' },
+  { key: 'evaluating', label: 'Evaluate' },
+  { key: 'analyzing', label: 'Analyze' },
+]
+
+const STAGES_EVO1_DATASET = [
+  { key: 'generating', label: 'Dataset' },
   { key: 'formatting', label: 'Format' },
   { key: 'transferring', label: 'Transfer' },
   { key: 'training', label: 'Train' },
@@ -43,6 +56,10 @@ export default function Loop() {
   const sse = useLoopSSE(activeLoopId)
   const [configs, setConfigs] = useState<LoopConfigEntry[]>([])
   const [selectedConfig, setSelectedConfig] = useState<string>('')
+  const [datasets, setDatasets] = useState<Dataset[]>([])
+  const [selectedDatasetId, setSelectedDatasetId] = useState<number | null>(null)
+  const [modelConfigs, setModelConfigs] = useState<ConfigInfo[]>([])
+  const [selectedModel, setSelectedModel] = useState<string>('')
   const logEndRef = useRef<HTMLDivElement>(null)
 
   // Load configs + initial data
@@ -52,6 +69,13 @@ export default function Loop() {
     listLoopConfigs().then(c => {
       setConfigs(c)
       if (c.length > 0) setSelectedConfig(c[0].path)
+    }).catch(() => {})
+    getDatasets(1).then(r => {
+      const completed = r.datasets.filter(d => d.status === 'completed')
+      setDatasets(completed)
+    }).catch(() => {})
+    getConfigs('models').then(r => {
+      setModelConfigs(r.configs)
     }).catch(() => {})
   }, [])
 
@@ -101,12 +125,21 @@ export default function Loop() {
   const currentEvo = sse.evolution || status?.current_evolution || 0
   const currentStage = sse.stage || status?.current_stage || 'idle'
 
+  // Determine stage labels: evo 1 with selected dataset shows "Dataset" instead of "Generate"
+  const hasSelectedDataset = !!(status?.config_snapshot?.selected_dataset as any)?.id
+  const STAGES = (currentEvo <= 1 && hasSelectedDataset) ? STAGES_EVO1_DATASET : STAGES_DEFAULT
+
   // Merge evolution data for table: SSE metrics + REST for completeness
   const allEvolutions: EvolutionSummary[] = restEvolutions
   const displayStopReason = sse.stopReason || status?.stop_reason
 
   const handleStart = async () => {
-    await start(selectedConfig || undefined)
+    if (!selectedDatasetId) return
+    await start({
+      config_path: selectedConfig || undefined,
+      dataset_id: selectedDatasetId,
+      model_config: selectedModel || undefined,
+    })
   }
 
   return (
@@ -121,19 +154,37 @@ export default function Loop() {
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           {!isRunning && (
-            <select
-              value={selectedConfig}
-              onChange={e => setSelectedConfig(e.target.value)}
-              style={{
-                padding: '8px 12px', borderRadius: 'var(--radius-sm)',
-                background: 'var(--bg-input)', color: 'var(--text-primary)',
-                border: '1px solid var(--border-subtle)', fontSize: 13,
-              }}
-            >
-              {configs.map(c => (
-                <option key={c.path} value={c.path}>{c.display_name}</option>
-              ))}
-            </select>
+            <>
+              <select
+                value={selectedDatasetId ?? ''}
+                onChange={e => setSelectedDatasetId(e.target.value ? Number(e.target.value) : null)}
+                style={selectStyle}
+              >
+                <option value="">Select dataset...</option>
+                {datasets.map(d => (
+                  <option key={d.id} value={d.id}>{d.topic} ({d.actual_size} samples)</option>
+                ))}
+              </select>
+              <select
+                value={selectedModel}
+                onChange={e => setSelectedModel(e.target.value)}
+                style={selectStyle}
+              >
+                <option value="">Default model</option>
+                {modelConfigs.map(m => (
+                  <option key={m.name} value={m.name}>{m.display_name}</option>
+                ))}
+              </select>
+              <select
+                value={selectedConfig}
+                onChange={e => setSelectedConfig(e.target.value)}
+                style={selectStyle}
+              >
+                {configs.map(c => (
+                  <option key={c.path} value={c.path}>{c.display_name}</option>
+                ))}
+              </select>
+            </>
           )}
           <button onClick={() => { fetchStatus(); fetchHistory() }} style={btnStyle('secondary')} title="Refresh">
             <RefreshCw size={16} />
@@ -143,7 +194,7 @@ export default function Loop() {
               <Square size={16} /> Stop
             </button>
           ) : (
-            <button onClick={handleStart} disabled={loading || !selectedConfig} style={btnStyle('primary')}>
+            <button onClick={handleStart} disabled={loading || !selectedConfig || !selectedDatasetId} style={btnStyle('primary')}>
               <Play size={16} /> Start Evolution
             </button>
           )}
@@ -213,6 +264,12 @@ export default function Loop() {
             <Stat label="Status" value={isRunning ? 'Running' : (status?.status ?? 'idle')} color={isRunning ? 'var(--status-running)' : 'var(--text-secondary)'} />
             <Stat label="Evolution" value={`${currentEvo} / ${maxEvos}`} />
             <Stat label="Stage" value={STAGE_LABELS[currentStage] ?? currentStage} color={isRunning ? 'var(--accent-cyan)' : undefined} />
+            {(status?.config_snapshot?.training as any)?.model_config && (
+              <Stat label="Model" value={(status?.config_snapshot?.training as any).model_config} />
+            )}
+            {(status?.config_snapshot?.selected_dataset as any)?.name && (
+              <Stat label="Dataset" value={(status?.config_snapshot?.selected_dataset as any).name} />
+            )}
             {currentScore != null && (
               <Stat label="Current Score" value={`${currentScore.toFixed(1)}%`} color={currentScore >= targetAccuracy ? 'var(--accent-green)' : 'var(--accent-blue)'} />
             )}
@@ -415,7 +472,7 @@ export default function Loop() {
           <p style={{ color: 'var(--text-muted)', fontSize: 14, marginBottom: 16 }}>
             No evolution loop has been run yet. Start one to begin the autonomous training cycle.
           </p>
-          <button onClick={handleStart} disabled={loading || !selectedConfig} style={btnStyle('primary')}>
+          <button onClick={handleStart} disabled={loading || !selectedConfig || !selectedDatasetId} style={btnStyle('primary')}>
             <Play size={16} /> Start First Evolution
           </button>
         </div>
@@ -446,6 +503,16 @@ const cardStyle: React.CSSProperties = {
   border: '1px solid var(--border-subtle)',
   borderRadius: 'var(--radius-md)',
   padding: 20,
+}
+
+const selectStyle: React.CSSProperties = {
+  padding: '8px 12px',
+  borderRadius: 'var(--radius-sm)',
+  background: 'var(--bg-input)',
+  color: 'var(--text-primary)',
+  border: '1px solid var(--border-subtle)',
+  fontSize: 13,
+  maxWidth: 200,
 }
 
 const cellStyle: React.CSSProperties = {

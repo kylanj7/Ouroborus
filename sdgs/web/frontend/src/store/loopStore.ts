@@ -17,7 +17,7 @@ interface LoopState {
 
   fetchStatus: () => Promise<void>
   fetchHistory: () => Promise<void>
-  start: (configPath?: string) => Promise<string | null>
+  start: (params: { config_path?: string; dataset_id: number; model_config?: string }) => Promise<string | null>
   stop: () => Promise<void>
   setActiveLoopId: (id: string | null) => void
 }
@@ -47,10 +47,10 @@ export const useLoopStore = create<LoopState>((set, get) => ({
     }
   },
 
-  start: async (configPath?: string) => {
+  start: async (params: { config_path?: string; dataset_id: number; model_config?: string }) => {
     set({ loading: true, error: null })
     try {
-      const res = await startLoop(configPath)
+      const res = await startLoop(params)
       const loopId = res.loop_id
       set({ activeLoopId: loopId })
       await get().fetchStatus()

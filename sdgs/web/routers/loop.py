@@ -2,17 +2,22 @@
 from __future__ import annotations
 
 import glob as globmod
+import json
 import threading
 import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from ...loop.config import load_loop_config
 from ...loop.orchestrator import Orchestrator
 from ...loop.state import StateStore
+from ..db.database import get_db
+from ..db.models import Dataset, QAPair
+from ..deps import CurrentUser, get_current_user
 from ..services.job_runner import init_loop_stream, emit_loop_event, finish_loop_stream
 
 router = APIRouter()
@@ -28,6 +33,8 @@ _BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
 
 class LoopStartRequest(BaseModel):
     config_path: str | None = None
+    dataset_id: int | None = None
+    model_config: str = ""
 
 
 class EvolutionSummary(BaseModel):
@@ -74,7 +81,11 @@ class LoopListEntry(BaseModel):
 # ------------------------------------------------------------------
 
 @router.post("/start")
-async def start_loop(req: LoopStartRequest):
+async def start_loop(
+    req: LoopStartRequest,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+):
     """Start a new evolution loop in a background thread."""
     active = _store.get_active_loop()
     if active:
@@ -82,7 +93,37 @@ async def start_loop(req: LoopStartRequest):
 
     loop_id = f"loop-{uuid.uuid4().hex[:12]}"
     cfg = load_loop_config(req.config_path)
-    orch = Orchestrator(config=cfg, state_store=_store, emit_fn=emit_loop_event)
+
+    # Resolve dataset for evo 1
+    initial_dataset_path: str | None = None
+    dataset_name: str = ""
+    dataset_id: int | None = req.dataset_id
+    if dataset_id:
+        ds = db.query(Dataset).filter(
+            Dataset.id == dataset_id,
+            Dataset.user_id == current_user.id,
+        ).first()
+        if not ds:
+            raise HTTPException(404, "Dataset not found")
+        dataset_name = ds.name or ds.topic
+        path = ds.output_path
+        if path and Path(path).exists():
+            initial_dataset_path = path
+        else:
+            initial_dataset_path = _build_jsonl_from_db(dataset_id, db)
+
+    # Override model config if provided
+    if req.model_config:
+        cfg.training.model_config = req.model_config
+
+    orch = Orchestrator(
+        config=cfg,
+        state_store=_store,
+        emit_fn=emit_loop_event,
+        initial_dataset_path=initial_dataset_path,
+        dataset_name=dataset_name,
+        dataset_id=dataset_id,
+    )
 
     init_loop_stream(loop_id)
 
@@ -151,6 +192,27 @@ async def list_configs():
         display_name = name.replace("_", " ").replace("loop ", "Loop ").title()
         results.append({"name": name, "path": str(p), "display_name": display_name})
     return results
+
+
+def _build_jsonl_from_db(dataset_id: int, db: Session) -> str:
+    """Build a .jsonl file from QAPair records in the database."""
+    pairs = db.query(QAPair).filter(
+        QAPair.dataset_id == dataset_id,
+        QAPair.is_valid == True,  # noqa: E712
+    ).all()
+    if not pairs:
+        raise HTTPException(400, "No valid QA pairs found for this dataset")
+    out_dir = _BASE_DIR / "data" / "training"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"dataset_{dataset_id}.jsonl"
+    with open(out_path, "w") as f:
+        for qa in pairs:
+            f.write(json.dumps({
+                "instruction": qa.instruction,
+                "output": qa.output,
+                "source_title": qa.source_title,
+            }) + "\n")
+    return str(out_path)
 
 
 def _state_to_response(state) -> LoopStatusResponse:
