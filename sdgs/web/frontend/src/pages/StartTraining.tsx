@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ChevronDown, ChevronRight, StopCircle } from 'lucide-react'
-import { getDatasets, startTraining, cancelTraining, getConfigs, getArtifacts, Dataset, ConfigInfo, ArtifactEntry } from '../api/client'
+import { getDatasets, startTraining, cancelTraining, getConfigs, getArtifacts, importFromHuggingFace, Dataset, ConfigInfo, ArtifactEntry } from '../api/client'
 import { useTrainingSSE } from '../hooks/useTrainingSSE'
 
 export default function StartTraining() {
@@ -19,23 +19,25 @@ export default function StartTraining() {
 
   // Dataset selection
   const [datasets, setDatasets] = useState<Dataset[]>([])
-  const [datasetSource, setDatasetSource] = useState<'dataset' | 'path'>('dataset')
+  const [datasetSource, setDatasetSource] = useState<'dataset' | 'path' | 'huggingface'>('dataset')
   const [datasetId, setDatasetId] = useState<number | null>(null)
   const [datasetPath, setDatasetPath] = useState('')
+  const [hfRepoId, setHfRepoId] = useState('')
+  const [hfImporting, setHfImporting] = useState(false)
 
   // Model config
   const [baseModel, setBaseModel] = useState('Qwen/Qwen2.5-14B-Instruct')
   const [modelSize, setModelSize] = useState('14B')
 
   // LoRA config
-  const [loraRank, setLoraRank] = useState(16)
-  const [loraAlpha, setLoraAlpha] = useState(16)
+  const [loraRank, setLoraRank] = useState(64)
+  const [loraAlpha, setLoraAlpha] = useState(128)
 
   // Training config
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const [learningRate, setLearningRate] = useState(0.00005)
-  const [numEpochs, setNumEpochs] = useState(1)
-  const [batchSize, setBatchSize] = useState(4)
+  const [learningRate, setLearningRate] = useState(0.00001)
+  const [numEpochs, setNumEpochs] = useState(3)
+  const [batchSize, setBatchSize] = useState(32)
   const [gradAccumSteps, setGradAccumSteps] = useState(4)
   const [maxSteps, setMaxSteps] = useState(-1)
   const [checkpoints, setCheckpoints] = useState<ArtifactEntry[]>([])
@@ -75,6 +77,23 @@ export default function StartTraining() {
       setTimeout(() => navigate(`/training/${runId}`), 1000)
     }
   }, [done, status, runId, navigate])
+
+  const handleHfImport = async () => {
+    if (!hfRepoId.trim()) return
+    setHfImporting(true)
+    try {
+      const ds = await importFromHuggingFace({ repo_id: hfRepoId.trim() })
+      const res = await getDatasets(1)
+      setDatasets(res.datasets.filter((d) => d.status === 'completed'))
+      setDatasetId(ds.id)
+      setDatasetSource('dataset')
+      setHfRepoId('')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'HuggingFace import failed')
+    } finally {
+      setHfImporting(false)
+    }
+  }
 
   const handleStart = async () => {
     setError('')
@@ -117,7 +136,8 @@ export default function StartTraining() {
       ? (selectedModelConfig || selectedDatasetConfig || selectedTrainingConfig)
       : (
           (datasetSource === 'dataset' && datasetId != null) ||
-          (datasetSource === 'path' && datasetPath.trim())
+          (datasetSource === 'path' && datasetPath.trim()) ||
+          (datasetSource === 'huggingface' && datasetId != null)
         )
   )
 
@@ -252,6 +272,21 @@ export default function StartTraining() {
             >
               Manual Path
             </button>
+            <button
+              onClick={() => setDatasetSource('huggingface')}
+              disabled={submitting}
+              style={{
+                background: datasetSource === 'huggingface' ? 'var(--accent-blue)' : 'var(--bg-tertiary)',
+                border: '1px solid ' + (datasetSource === 'huggingface' ? 'var(--accent-blue)' : 'var(--border-primary)'),
+                color: datasetSource === 'huggingface' ? '#fff' : 'var(--text-secondary)',
+                cursor: 'pointer',
+                fontSize: '13px',
+                padding: '6px 12px',
+                borderRadius: 'var(--radius-sm)',
+              }}
+            >
+              HuggingFace
+            </button>
           </div>
 
           {datasetSource === 'dataset' ? (
@@ -267,6 +302,26 @@ export default function StartTraining() {
                 </option>
               ))}
             </select>
+          ) : datasetSource === 'huggingface' ? (
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <input
+                type="text"
+                placeholder="username/dataset-name"
+                value={hfRepoId}
+                onChange={(e) => setHfRepoId(e.target.value)}
+                disabled={submitting || hfImporting}
+                style={{ fontSize: '14px', flex: 1 }}
+                onKeyDown={(e) => e.key === 'Enter' && handleHfImport()}
+              />
+              <button
+                className="btn btn-primary"
+                onClick={handleHfImport}
+                disabled={submitting || hfImporting || !hfRepoId.trim()}
+                style={{ padding: '6px 16px', fontSize: '13px', whiteSpace: 'nowrap' }}
+              >
+                {hfImporting ? 'Importing...' : 'Import'}
+              </button>
+            </div>
           ) : (
             <input
               type="text"

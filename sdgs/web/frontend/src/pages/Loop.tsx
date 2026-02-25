@@ -61,13 +61,13 @@ export default function Loop() {
   const [modelConfigs, setModelConfigs] = useState<ConfigInfo[]>([])
   const [selectedModel, setSelectedModel] = useState<string>('')
   const [showParams, setShowParams] = useState(false)
-  const [learningRate, setLearningRate] = useState(0.00005)
-  const [numEpochs, setNumEpochs] = useState(1)
-  const [batchSize, setBatchSize] = useState(4)
+  const [loraRank, setLoraRank] = useState(64)
+  const [loraAlpha, setLoraAlpha] = useState(128)
+  const [learningRate, setLearningRate] = useState(0.00001)
+  const [numEpochs, setNumEpochs] = useState(3)
+  const [batchSize, setBatchSize] = useState(32)
   const [gradAccumSteps, setGradAccumSteps] = useState(4)
   const [maxSteps, setMaxSteps] = useState(-1)
-  const [loraRank, setLoraRank] = useState(16)
-  const [loraAlpha, setLoraAlpha] = useState(16)
   const [hfImportMode, setHfImportMode] = useState(false)
   const [hfRepoId, setHfRepoId] = useState('')
   const [hfImporting, setHfImporting] = useState(false)
@@ -276,13 +276,13 @@ export default function Loop() {
           </div>
           {showParams && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
+              <NumberField label="LoRA Rank" value={loraRank} onChange={setLoraRank} step={1} min={1} />
+              <NumberField label="LoRA Alpha" value={loraAlpha} onChange={setLoraAlpha} step={1} min={1} />
               <NumberField label="Learning Rate" value={learningRate} onChange={setLearningRate} step={0.00001} />
               <NumberField label="Epochs" value={numEpochs} onChange={setNumEpochs} step={1} min={1} />
               <NumberField label="Batch Size" value={batchSize} onChange={setBatchSize} step={1} min={1} />
               <NumberField label="Gradient Accumulation Steps" value={gradAccumSteps} onChange={setGradAccumSteps} step={1} min={1} />
               <NumberField label="Max Steps (-1 for unlimited)" value={maxSteps} onChange={setMaxSteps} step={1} />
-              <NumberField label="LoRA Rank" value={loraRank} onChange={setLoraRank} step={1} min={1} />
-              <NumberField label="LoRA Alpha" value={loraAlpha} onChange={setLoraAlpha} step={1} min={1} />
             </div>
           )}
         </div>
