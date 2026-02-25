@@ -167,12 +167,15 @@ export default function Datasets() {
           {/* Scrollable dataset list */}
           <div style={{
             flex: showTerminal ? undefined : 1,
-            maxHeight: showTerminal ? '45vh' : undefined,
+            maxHeight: showTerminal ? '45vh' : '70vh',
             overflowY: 'auto',
             display: 'flex',
             flexDirection: 'column',
             gap: '12px',
-            paddingRight: '4px',
+            padding: '16px',
+            background: 'var(--bg-card)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 'var(--radius-md)',
           }}>
             {datasets.map((ds) => (
               <DatasetCard
