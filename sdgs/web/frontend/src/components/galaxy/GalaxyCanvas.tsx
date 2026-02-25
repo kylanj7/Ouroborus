@@ -76,8 +76,8 @@ void main() {
     cos(uTime * aSpeed * 0.8 + aPhase.z) * aRadius
   );
   vec4 mvPos = modelViewMatrix * vec4(aCenter + offset, 1.0);
-  gl_PointSize = 4.0 * (200.0 / -mvPos.z);
-  gl_PointSize = clamp(gl_PointSize, 0.5, 12.0);
+  gl_PointSize = 6.0 * (200.0 / -mvPos.z);
+  gl_PointSize = clamp(gl_PointSize, 1.5, 16.0);
   gl_Position = projectionMatrix * mvPos;
 }
 `
@@ -87,7 +87,7 @@ varying vec3 vColor;
 void main() {
   float d = length(gl_PointCoord - 0.5) * 2.0;
   if (d > 1.0) discard;
-  float alpha = (1.0 - smoothstep(0.3, 1.0, d)) * 0.55;
+  float alpha = (1.0 - smoothstep(0.3, 1.0, d)) * 0.75;
   gl_FragColor = vec4(vColor, alpha);
 }
 `
@@ -231,15 +231,22 @@ export default function GalaxyCanvas({ nodes, links, searchQuery, onNodeClick }:
 
     for (const paper of cloudNodes) {
       const qaCount = paper.qa_pair_count || 0
-      const particleCount = Math.min(qaCount, 8)
-      const baseRadius = (paper.size || 4) * 1.2 + Math.log2(qaCount + 1) * 2
+      // Datasets with many QAs get a dense cloud; papers stay small
+      const isLargeDataset = paper.type === 'dataset' && qaCount > 20
+      const particleCount = isLargeDataset
+        ? Math.min(Math.round(Math.sqrt(qaCount) * 8), 600)
+        : Math.min(qaCount, 8)
+      const baseRadius = isLargeDataset
+        ? (paper.size || 4) * 2 + Math.sqrt(qaCount) * 1.2
+        : (paper.size || 4) * 1.2 + Math.log2(qaCount + 1) * 2
+      const radiusJitter = isLargeDataset ? baseRadius * 0.4 : 5
       tmpColor.set(paper.color || '#6ee7d8')
 
       for (let i = 0; i < particleCount; i++) {
         nodeIds.push(paper.id)
         centers.push(paper.x || 0, paper.y || 0, paper.z || 0)
-        radii.push(baseRadius + Math.random() * 5)
-        speeds.push(0.2 + Math.random() * 0.5)
+        radii.push(baseRadius * (0.3 + Math.random() * 0.7) + Math.random() * radiusJitter)
+        speeds.push(0.1 + Math.random() * 0.4)
         phases.push(
           Math.random() * Math.PI * 2,
           Math.random() * Math.PI * 2,

@@ -214,6 +214,8 @@ class GalaxyNode(BaseModel):
     abstract: str | None = None
     authors: list[str] | None = None
     url: str | None = None
+    # Shared
+    qa_pair_count: int = 0
     # QA-specific
     instruction: str | None = None
     output_preview: str | None = None
