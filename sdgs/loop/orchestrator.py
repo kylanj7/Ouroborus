@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import datetime
 import logging
+import time
 import uuid
 from dataclasses import asdict
 from pathlib import Path
@@ -147,50 +148,52 @@ class Orchestrator:
 
     def _run_evolution(self, evo: int, prev_feedback: FeedbackSignal | None) -> FeedbackSignal:
         """Execute one full evolution: generate -> format -> transfer -> train -> convert -> evaluate -> analyze."""
+        evo_t0 = time.monotonic()
         started_at = datetime.datetime.utcnow().isoformat()
         state = self.store.get_loop(self._loop_id)
         previous_records = state.evolutions if state else []
         retry_limit = self.cfg.evolution.stage_retry_limit
+        stage_timings: dict[str, float] = {}
 
         def _stage(stage: Stage):
             self.store.update_stage(self._loop_id, evo, stage)
             self._emit({"type": "stage", "stage": stage.value, "evolution": evo})
             self._emit({"type": "log", "data": f"[evo {evo}] Starting stage: {stage.value}"})
 
+        def _timed(stage: Stage, fn, *args, **kwargs):
+            _stage(stage)
+            t0 = time.monotonic()
+            result = fn(*args, **kwargs)
+            elapsed = time.monotonic() - t0
+            stage_timings[stage.value] = elapsed
+            log.info("[perf] evo %d  %s  %.1fs", evo, stage.value, elapsed)
+            self._emit({"type": "log", "data": f"[evo {evo}] {stage.value} finished in {elapsed:.1f}s"})
+            return result
+
         # --- 1. GENERATE ---
-        _stage(Stage.GENERATING)
-        dataset_path = self._stage_generate(evo, prev_feedback, retries=retry_limit)
-        self._emit({"type": "log", "data": f"[evo {evo}] Domain generation complete: {dataset_path.name}"})
+        dataset_path = _timed(Stage.GENERATING, self._stage_generate, evo, prev_feedback, retries=retry_limit)
 
         # --- 2. FORMAT ---
-        _stage(Stage.FORMATTING)
-        formatted_path, config_yaml, config_name = self._stage_format(evo, dataset_path)
+        formatted_path, config_yaml, config_name = _timed(Stage.FORMATTING, self._stage_format, evo, dataset_path)
 
         # --- 3. TRANSFER ---
-        _stage(Stage.TRANSFERRING)
-        self._stage_transfer(formatted_path, config_yaml, config_name, retries=retry_limit)
+        _timed(Stage.TRANSFERRING, self._stage_transfer, formatted_path, config_yaml, config_name, retries=retry_limit)
 
         # --- 4. TRAIN ---
-        _stage(Stage.TRAINING)
-        self._emit({"type": "log", "data": f"[evo {evo}] Training started on QFTL"})
-        train_result = self._stage_train(config_name, str(formatted_path), retries=retry_limit)
-        self._emit({"type": "log", "data": f"[evo {evo}] Training complete"})
+        train_result = _timed(Stage.TRAINING, self._stage_train, config_name, str(formatted_path), retries=retry_limit)
 
         # --- 5. CONVERT ---
-        _stage(Stage.CONVERTING)
-        convert_result = self._stage_convert(train_result, retries=retry_limit)
+        convert_result = _timed(Stage.CONVERTING, self._stage_convert, train_result, retries=retry_limit)
 
         # --- 6. EVALUATE ---
-        _stage(Stage.EVALUATING)
-        self._emit({"type": "log", "data": f"[evo {evo}] Evaluation started"})
-        eval_result = self._stage_evaluate(
+        eval_result = _timed(
+            Stage.EVALUATING, self._stage_evaluate,
             convert_result, str(formatted_path), train_result, retries=retry_limit,
         )
-        self._emit({"type": "log", "data": f"[evo {evo}] Evaluation complete"})
 
         # --- 7. ANALYZE ---
-        _stage(Stage.ANALYZING)
-        feedback = analyze_evaluation(
+        feedback = _timed(
+            Stage.ANALYZING, analyze_evaluation,
             detailed_results=eval_result.detailed_results,
             previous_records=previous_records,
             evolution=evo,
@@ -226,12 +229,18 @@ class Orchestrator:
             "domain_scores": record.domain_scores,
         })
 
+        evo_elapsed = time.monotonic() - evo_t0
+        timing_summary = "  ".join(f"{k}={v:.1f}s" for k, v in stage_timings.items())
+        log.info(
+            "[perf] evo %d total %.1fs  breakdown: %s",
+            evo, evo_elapsed, timing_summary,
+        )
         log.info(
             "Evo %d complete: score=%.1f  best=%.1f  delta=%.1f  stop=%s",
             evo, feedback.overall_score, feedback.best_score_so_far,
             feedback.delta_from_previous, feedback.stop,
         )
-        self._emit({"type": "log", "data": f"[evo {evo}] Complete: score={feedback.overall_score:.1f} best={feedback.best_score_so_far:.1f} delta={feedback.delta_from_previous:+.1f}"})
+        self._emit({"type": "log", "data": f"[evo {evo}] Complete in {evo_elapsed:.1f}s: score={feedback.overall_score:.1f} best={feedback.best_score_so_far:.1f} delta={feedback.delta_from_previous:+.1f}"})
         return feedback
 
     # ------------------------------------------------------------------

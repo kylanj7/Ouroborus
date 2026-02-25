@@ -120,9 +120,10 @@ class QFTLBridge:
         if dataset_path:
             body["dataset_path"] = dataset_path
         if parameter_overrides:
-            # Flatten overrides into top-level fields (the schema uses flat fields)
             body.update(parameter_overrides)
+        t0 = time.monotonic()
         data = self._post("/api/training/start", body)
+        log.info("[perf] start_training API call %.2fs", time.monotonic() - t0)
         return self._parse_training_status(data)
 
     def get_training_status(self, run_id: int) -> TrainingStatus:
@@ -131,13 +132,18 @@ class QFTLBridge:
 
     def poll_training(self, run_id: int, check_stop: callable = None) -> TrainingStatus:
         """Poll until training completes, fails, or is cancelled."""
+        t0 = time.monotonic()
+        polls = 0
         while True:
             status = self.get_training_status(run_id)
+            polls += 1
             log.info("Training %d: %s  step %d/%d  loss=%s",
                       run_id, status.status, status.current_step, status.total_steps, status.current_loss)
             if status.status in ("completed", "failed", "cancelled"):
+                log.info("[perf] poll_training run=%d  %d polls  %.1fs total", run_id, polls, time.monotonic() - t0)
                 return status
             if check_stop and check_stop():
+                log.info("[perf] poll_training run=%d  stopped after %d polls  %.1fs", run_id, polls, time.monotonic() - t0)
                 return status
             time.sleep(self._poll_interval)
 
@@ -158,7 +164,9 @@ class QFTLBridge:
         }
         if output_name:
             body["output_name"] = output_name
+        t0 = time.monotonic()
         data = self._post("/api/training/convert", body)
+        log.info("[perf] start_conversion API call %.2fs", time.monotonic() - t0)
         return ConversionStatus(
             status=data.get("status", "completed"),
             output_path=data.get("gguf_path"),
@@ -184,7 +192,9 @@ class QFTLBridge:
         }
         if training_run_id is not None:
             body["training_run_id"] = training_run_id
+        t0 = time.monotonic()
         data = self._post("/api/training/evaluate", body)
+        log.info("[perf] start_evaluation API call %.2fs", time.monotonic() - t0)
         return self._parse_eval_status(data)
 
     def get_evaluation_status(self, eval_id: int) -> EvaluationStatus:
@@ -207,13 +217,18 @@ class QFTLBridge:
         )
 
     def poll_evaluation(self, eval_id: int, check_stop: callable = None) -> EvaluationStatus:
+        t0 = time.monotonic()
+        polls = 0
         while True:
             status = self.get_evaluation_status(eval_id)
+            polls += 1
             log.info("Evaluation %d: %s  scored=%d  overall=%s",
                       eval_id, status.status, status.samples_scored, status.overall_accuracy)
             if status.status in ("completed", "failed", "cancelled"):
+                log.info("[perf] poll_evaluation eval=%d  %d polls  %.1fs total", eval_id, polls, time.monotonic() - t0)
                 return status
             if check_stop and check_stop():
+                log.info("[perf] poll_evaluation eval=%d  stopped after %d polls  %.1fs", eval_id, polls, time.monotonic() - t0)
                 return status
             time.sleep(self._poll_interval)
 
@@ -222,12 +237,20 @@ class QFTLBridge:
     # ------------------------------------------------------------------
 
     def _get(self, path: str) -> Any:
+        t0 = time.monotonic()
         r = self._session.get(f"{self._base}{path}", timeout=self._timeout)
+        elapsed = time.monotonic() - t0
+        if elapsed > 1.0:
+            log.debug("[perf] GET %s  %.2fs", path, elapsed)
         self._raise_for_status(r)
         return r.json()
 
     def _post(self, path: str, body: dict, auth_required: bool = True) -> Any:
+        t0 = time.monotonic()
         r = self._session.post(f"{self._base}{path}", json=body, timeout=self._timeout)
+        elapsed = time.monotonic() - t0
+        if elapsed > 1.0:
+            log.debug("[perf] POST %s  %.2fs", path, elapsed)
         self._raise_for_status(r)
         return r.json()
 

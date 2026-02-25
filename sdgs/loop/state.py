@@ -119,6 +119,17 @@ class StateStore:
         self._conn = sqlite3.connect(self._db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA)
+        self._cleanup_stale_loops()
+
+    def _cleanup_stale_loops(self):
+        """Mark any loops left as 'running' from a previous server session as aborted."""
+        now = datetime.datetime.utcnow().isoformat()
+        cursor = self._conn.execute(
+            "UPDATE loop_runs SET status = 'stopped', stop_reason = 'ABORTED', updated_at = ? "
+            "WHERE status = 'running'", (now,)
+        )
+        if cursor.rowcount > 0:
+            self._conn.commit()
 
     def create_loop(self, loop_id: str, config_snapshot: dict) -> LoopState:
         now = datetime.datetime.utcnow().isoformat()

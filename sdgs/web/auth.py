@@ -10,7 +10,23 @@ from jose import JWTError, jwt
 from cryptography.fernet import Fernet
 
 # --- JWT config ---
-SECRET_KEY = os.environ.get("SDGS_JWT_SECRET", secrets.token_hex(32))
+# Persist the secret so tokens survive server restarts.
+# Priority: env var > file > generate + save.
+def _load_jwt_secret() -> str:
+    from_env = os.environ.get("SDGS_JWT_SECRET")
+    if from_env:
+        return from_env
+    secret_path = os.path.join(os.path.dirname(__file__), "..", "..", ".jwt_secret")
+    secret_path = os.path.abspath(secret_path)
+    if os.path.exists(secret_path):
+        return open(secret_path).read().strip()
+    key = secrets.token_hex(32)
+    os.makedirs(os.path.dirname(secret_path), exist_ok=True)
+    with open(secret_path, "w") as f:
+        f.write(key)
+    return key
+
+SECRET_KEY = _load_jwt_secret()
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS = 24
 REFRESH_TOKEN_EXPIRE_DAYS = 7
