@@ -1,8 +1,10 @@
 """FastAPI application for the SDGS web interface."""
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import requests as _requests
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -12,6 +14,30 @@ from .config import CORS_ORIGINS, DATA_DIR
 from .db.database import init_db
 from .routers.pulse import broadcast_consumer
 from .services.job_runner import shutdown_runner
+
+log = logging.getLogger(__name__)
+
+OLLAMA_BASE_URL = "http://localhost:11434"
+
+
+def _unload_ollama_models() -> None:
+    """Unload all Ollama models from VRAM on shutdown."""
+    try:
+        resp = _requests.get(f"{OLLAMA_BASE_URL}/api/ps", timeout=5)
+        resp.raise_for_status()
+        models = resp.json().get("models", [])
+        for m in models:
+            name = m.get("name", "")
+            if not name:
+                continue
+            log.info("Unloading Ollama model: %s", name)
+            _requests.post(
+                f"{OLLAMA_BASE_URL}/api/generate",
+                json={"model": name, "keep_alive": 0},
+                timeout=10,
+            )
+    except Exception:
+        log.debug("Ollama not reachable or no models loaded -- skipping unload")
 
 
 @asynccontextmanager
@@ -23,6 +49,7 @@ async def lifespan(app: FastAPI):
     yield
     consumer_task.cancel()
     shutdown_runner()
+    _unload_ollama_models()
 
 
 app = FastAPI(

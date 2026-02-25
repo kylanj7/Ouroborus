@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Database, Plus, Download } from 'lucide-react'
+import { Database, Plus, Download, Terminal } from 'lucide-react'
 import { useDatasetStore } from '../store/datasetStore'
 import { importFromHuggingFace } from '../api/client'
+import { useSSE } from '../hooks/useSSE'
 import DatasetCard from '../components/datasets/DatasetCard'
 
 export default function Datasets() {
@@ -13,10 +14,27 @@ export default function Datasets() {
   const [split, setSplit] = useState('')
   const [importing, setImporting] = useState(false)
   const [importError, setImportError] = useState('')
+  const logEndRef = useRef<HTMLDivElement>(null)
+
+  // Find the first running dataset to stream its logs
+  const runningDataset = datasets.find(ds => ds.status === 'running' || ds.status === 'pending')
+  const { logs, status: sseStatus, done } = useSSE(runningDataset?.id ?? null)
 
   useEffect(() => {
     fetchDatasets()
   }, [])
+
+  // Refresh dataset list when a generation completes
+  useEffect(() => {
+    if (done) {
+      fetchDatasets(page)
+    }
+  }, [done])
+
+  // Auto-scroll terminal
+  useEffect(() => {
+    logEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [logs.length])
 
   const totalPages = Math.ceil(total / 20)
 
@@ -40,9 +58,11 @@ export default function Datasets() {
     }
   }
 
+  const showTerminal = runningDataset || (logs.length > 0 && !done)
+
   return (
-    <div>
-      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
         <div>
           <h1>Your Datasets</h1>
           <p>{total} dataset{total !== 1 ? 's' : ''}</p>
@@ -65,7 +85,7 @@ export default function Datasets() {
 
       {/* Import inline form */}
       {showImport && (
-        <div className="card" style={{ marginBottom: '16px', padding: '16px' }}>
+        <div className="card" style={{ marginBottom: '16px', padding: '16px', flexShrink: 0 }}>
           <div style={{ fontSize: '14px', fontWeight: 500, marginBottom: '12px' }}>
             Import from HuggingFace
           </div>
@@ -144,7 +164,16 @@ export default function Datasets() {
         </div>
       ) : (
         <>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          {/* Scrollable dataset list */}
+          <div style={{
+            flex: showTerminal ? undefined : 1,
+            maxHeight: showTerminal ? '45vh' : undefined,
+            overflowY: 'auto',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '12px',
+            paddingRight: '4px',
+          }}>
             {datasets.map((ds) => (
               <DatasetCard
                 key={ds.id}
@@ -155,7 +184,7 @@ export default function Datasets() {
           </div>
 
           {totalPages > 1 && (
-            <div className="pagination">
+            <div className="pagination" style={{ flexShrink: 0 }}>
               <button
                 className="btn"
                 disabled={page <= 1}
@@ -175,6 +204,78 @@ export default function Datasets() {
           )}
         </>
       )}
+
+      {/* Streaming terminal */}
+      {showTerminal && (
+        <div style={{
+          flexShrink: 0,
+          marginTop: '16px',
+          background: 'var(--bg-card)',
+          border: '1px solid var(--border-subtle)',
+          borderRadius: 'var(--radius-md)',
+          display: 'flex',
+          flexDirection: 'column',
+          maxHeight: '40vh',
+        }}>
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '10px 16px',
+            borderBottom: '1px solid var(--border-subtle)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Terminal size={14} style={{ color: 'var(--accent-cyan)' }} />
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
+                Generating: {runningDataset?.topic || 'Dataset'}
+              </span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {sseStatus && (
+                <span className={`badge badge-${sseStatus}`} style={{ fontSize: 11 }}>
+                  {sseStatus}
+                </span>
+              )}
+              {runningDataset && (
+                <span style={{
+                  width: 6, height: 6, borderRadius: '50%',
+                  background: 'var(--accent-green)',
+                  animation: 'pulse 2s ease-in-out infinite',
+                  display: 'inline-block',
+                }} />
+              )}
+            </div>
+          </div>
+          <div style={{
+            flex: 1,
+            overflow: 'auto',
+            padding: '10px 16px',
+            fontFamily: 'monospace',
+            fontSize: 12,
+            lineHeight: 1.7,
+            color: 'var(--text-secondary)',
+            background: 'var(--bg-main)',
+            borderRadius: '0 0 var(--radius-md) var(--radius-md)',
+          }}>
+            {logs.length === 0 && (
+              <span style={{ color: 'var(--text-muted)' }}>Waiting for output...</span>
+            )}
+            {logs.map((line, i) => (
+              <div key={i} style={{ color: line.startsWith('ERROR') ? 'var(--status-failed)' : undefined }}>
+                {line}
+              </div>
+            ))}
+            <div ref={logEndRef} />
+          </div>
+        </div>
+      )}
+
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.4; }
+        }
+      `}</style>
     </div>
   )
 }
