@@ -59,7 +59,8 @@ export default function Datasets() {
     }
   }
 
-  const showTerminal = runningDataset || (logs.length > 0 && !done)
+  // Show terminal only when there's an active stream with data (not stale jobs)
+  const showTerminal = (runningDataset && !done) || (logs.length > 0 && !done)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>

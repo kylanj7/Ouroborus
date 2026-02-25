@@ -40,11 +40,29 @@ def _unload_ollama_models() -> None:
         log.debug("Ollama not reachable or no models loaded -- skipping unload")
 
 
+def _reset_stale_jobs() -> None:
+    """Reset datasets stuck in running/pending from a previous server session."""
+    from .db.database import SessionLocal
+    from .db.models import Dataset
+
+    db = SessionLocal()
+    try:
+        stale = db.query(Dataset).filter(Dataset.status.in_(["running", "pending"])).all()
+        for ds in stale:
+            log.info("Resetting stale dataset %d (%s) from '%s' to 'failed'", ds.id, ds.topic, ds.status)
+            ds.status = "failed"
+        if stale:
+            db.commit()
+    finally:
+        db.close()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup/shutdown lifecycle."""
     init_db()
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+    _reset_stale_jobs()
     consumer_task = asyncio.create_task(broadcast_consumer())
     yield
     consumer_task.cancel()
