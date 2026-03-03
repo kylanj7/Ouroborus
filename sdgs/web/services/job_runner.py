@@ -1,5 +1,6 @@
 """Dataset execution engine using ThreadPoolExecutor with stdout capture."""
 import io
+import logging
 import sys
 import queue
 import threading
@@ -12,6 +13,8 @@ from sqlalchemy.orm import Session
 
 from ..db.database import SessionLocal
 from ..db.models import Dataset
+
+log = logging.getLogger(__name__)
 
 _executor = ThreadPoolExecutor(max_workers=2)
 _job_queues: dict[int, queue.Queue] = {}
@@ -51,14 +54,14 @@ def register_job_client(dataset_id: int, client):
         _job_clients[dataset_id] = client
 
 
-class StdoutCapture(io.TextIOBase):
-    """Captures stdout writes and pushes lines into a queue."""
+class _ThreadCapture:
+    """Per-thread capture state: buffers stdout writes and emits lines to a queue."""
 
-    def __init__(self, dataset_id: int, q: queue.Queue, emit_fn=None):
-        self.dataset_id = dataset_id
+    def __init__(self, job_id: int, q: queue.Queue, emit_fn):
+        self.job_id = job_id
         self.q = q
         self._buffer = ""
-        self._emit_fn = emit_fn or _emit
+        self._emit_fn = emit_fn
 
     def write(self, s: str) -> int:
         if not s:
@@ -66,13 +69,74 @@ class StdoutCapture(io.TextIOBase):
         self._buffer += s
         while "\n" in self._buffer:
             line, self._buffer = self._buffer.split("\n", 1)
-            self._emit_fn(self.dataset_id, self.q, {"type": "log", "data": line})
+            self._emit_fn(self.job_id, self.q, {"type": "log", "data": line})
         return len(s)
 
     def flush(self):
         if self._buffer:
-            self._emit_fn(self.dataset_id, self.q, {"type": "log", "data": self._buffer})
+            self._emit_fn(self.job_id, self.q, {"type": "log", "data": self._buffer})
             self._buffer = ""
+
+
+class _ThreadAwareStdout(io.TextIOBase):
+    """Multiplexing stdout proxy that routes writes to per-thread captures.
+
+    Threads running dataset/training jobs register a capture; all other threads
+    (including the main thread) write to the real stdout.  This avoids the race
+    condition of swapping the global sys.stdout from multiple worker threads.
+    """
+
+    def __init__(self, real_stdout):
+        self._real = real_stdout
+        self._captures: dict[int, _ThreadCapture] = {}
+        self._lock = threading.Lock()
+
+    def register(self, capture: "_ThreadCapture"):
+        tid = threading.current_thread().ident
+        with self._lock:
+            self._captures[tid] = capture
+        log.debug("stdout capture registered for thread %s (job %s)", tid, capture.job_id)
+
+    def unregister(self):
+        tid = threading.current_thread().ident
+        with self._lock:
+            cap = self._captures.pop(tid, None)
+        if cap:
+            cap.flush()
+            log.debug("stdout capture unregistered for thread %s (job %s)", tid, cap.job_id)
+
+    def write(self, s: str) -> int:
+        tid = threading.current_thread().ident
+        with self._lock:
+            capture = self._captures.get(tid)
+        if capture:
+            return capture.write(s)
+        return self._real.write(s)
+
+    def flush(self):
+        tid = threading.current_thread().ident
+        with self._lock:
+            capture = self._captures.get(tid)
+        if capture:
+            capture.flush()
+        else:
+            self._real.flush()
+
+    @property
+    def encoding(self):
+        return getattr(self._real, "encoding", "utf-8")
+
+    def isatty(self):
+        return False
+
+    def fileno(self):
+        return self._real.fileno()
+
+
+# Install the thread-aware proxy once at module load
+_real_stdout = sys.stdout
+_threaded_stdout = _ThreadAwareStdout(_real_stdout)
+sys.stdout = _threaded_stdout
 
 
 def get_job_queue(dataset_id: int) -> queue.Queue | None:
@@ -82,6 +146,7 @@ def get_job_queue(dataset_id: int) -> queue.Queue | None:
 
 def submit_job(ds_id: int, run_fn, **kwargs):
     """Submit a dataset pipeline for background execution."""
+    log.info("[dataset:%d] Submitting job: %s", ds_id, run_fn.__name__)
     q = queue.Queue()
     cancel_event = threading.Event()
     with _lock:
@@ -149,8 +214,7 @@ def cancel_job(dataset_id: int) -> bool:
 def _run_job(dataset_id: int, q: queue.Queue, run_fn, kwargs: dict):
     """Execute the pipeline function with stdout capture."""
     db = SessionLocal()
-    old_stdout = sys.stdout
-    capture = StdoutCapture(dataset_id, q)
+    capture = _ThreadCapture(dataset_id, q, _emit)
 
     try:
         # Mark as running
@@ -160,26 +224,20 @@ def _run_job(dataset_id: int, q: queue.Queue, run_fn, kwargs: dict):
         ds.status = "running"
         ds.started_at = datetime.datetime.utcnow()
         db.commit()
+        log.info("[dataset:%d] Job started", dataset_id)
         _emit(dataset_id, q, {"type": "status", "data": "running"})
 
-        # Redirect stdout
-        sys.stdout = capture
+        # Register per-thread capture (no global sys.stdout swap)
+        _threaded_stdout.register(capture)
         result = run_fn(**kwargs)
         capture.flush()
-        sys.stdout = old_stdout
+        _threaded_stdout.unregister()
 
-        # Collect all captured output for stats parsing
-        all_lines = []
-        while not q.empty():
-            item = q.get_nowait()
-            if item and item.get("type") == "log":
-                all_lines.append(item["data"])
-
-        # Re-queue the lines so SSE still gets them
-        for line in all_lines:
-            q.put({"type": "log", "data": line})
-
-        # Parse stats from stdout
+        # Parse stats from the persistent log buffer (the queue may already
+        # be drained by the SSE consumer, so we use _job_logs instead)
+        with _lock:
+            all_log_items = list(_job_logs.get(dataset_id, []))
+        all_lines = [item["data"] for item in all_log_items if item.get("type") == "log"]
         stdout_text = "\n".join(all_lines)
         stats = _parse_stats(stdout_text)
 
@@ -245,6 +303,9 @@ def _run_job(dataset_id: int, q: queue.Queue, run_fn, kwargs: dict):
                 )
                 db.add(qa)
 
+            # Flush QA pairs so the count query sees them (autoflush=False)
+            db.flush()
+
             # Update paper QA counts
             for paper in db.query(Paper).filter(Paper.dataset_id == ds.id).all():
                 paper.qa_pair_count = db.query(QAPair).filter(
@@ -264,11 +325,15 @@ def _run_job(dataset_id: int, q: queue.Queue, run_fn, kwargs: dict):
         )
         db.commit()
 
+        log.info(
+            "[dataset:%d] Job completed: %d pairs, %d valid, %d tokens, %.1fs",
+            dataset_id, ds.actual_size or 0, ds.valid_count or 0,
+            ds.total_tokens or 0, ds.duration_seconds or 0,
+        )
         _emit(dataset_id, q, {"type": "status", "data": "completed"})
 
     except Exception as e:
-        sys.stdout = old_stdout
-        capture.flush()
+        _threaded_stdout.unregister()
 
         # Check if this was a cancellation (flag set by cancel_job)
         with _lock:
@@ -283,10 +348,13 @@ def _run_job(dataset_id: int, q: queue.Queue, run_fn, kwargs: dict):
                 if ds.started_at:
                     ds.duration_seconds = (ds.completed_at - ds.started_at).total_seconds()
                 db.commit()
+                log.info("[dataset:%d] Job cancelled by user", dataset_id)
                 _emit(dataset_id, q, {"type": "log", "data": "Job cancelled by user"})
                 _emit(dataset_id, q, {"type": "status", "data": "cancelled"})
             else:
                 tb = traceback.format_exc()
+                log.error("[dataset:%d] Job failed: %s", dataset_id, e)
+                log.debug("[dataset:%d] Traceback:\n%s", dataset_id, tb)
                 ds.status = "failed"
                 ds.completed_at = datetime.datetime.utcnow()
                 ds.error_message = str(e)
@@ -298,7 +366,7 @@ def _run_job(dataset_id: int, q: queue.Queue, run_fn, kwargs: dict):
                 _emit(dataset_id, q, {"type": "status", "data": "failed"})
 
     finally:
-        sys.stdout = old_stdout
+        _threaded_stdout.unregister()  # safe to call twice
         q.put(None)  # sentinel to end SSE stream
         db.close()
 
@@ -430,8 +498,7 @@ def _run_training_job(
     ModelCls = TrainingRun if model_class == "TrainingRun" else EvaluationRun
 
     db = SessionLocal()
-    old_stdout = sys.stdout
-    capture = StdoutCapture(run_id, q, emit_fn=_training_emit)
+    capture = _ThreadCapture(run_id, q, _training_emit)
 
     try:
         row = db.query(ModelCls).filter(ModelCls.id == run_id).first()
@@ -440,12 +507,13 @@ def _run_training_job(
         row.status = "running"
         row.started_at = datetime.datetime.utcnow()
         db.commit()
+        log.info("[training:%d] Job started (%s)", run_id, model_class)
         _training_emit(run_id, q, {"type": "status", "data": "running"})
 
-        sys.stdout = capture
+        _threaded_stdout.register(capture)
         result = run_fn(**kwargs)
         capture.flush()
-        sys.stdout = old_stdout
+        _threaded_stdout.unregister()
 
         # Update DB with results
         row = db.query(ModelCls).filter(ModelCls.id == run_id).first()
@@ -482,8 +550,7 @@ def _run_training_job(
         _training_emit(run_id, q, {"type": "status", "data": "completed"})
 
     except Exception as e:
-        sys.stdout = old_stdout
-        capture.flush()
+        _threaded_stdout.unregister()
 
         with _training_lock:
             cancel_event = _training_cancel.get(run_id)
@@ -497,9 +564,12 @@ def _run_training_job(
                 if row.started_at:
                     row.duration_seconds = (row.completed_at - row.started_at).total_seconds()
                 db.commit()
+                log.info("[training:%d] Job cancelled by user", run_id)
                 _training_emit(run_id, q, {"type": "status", "data": "cancelled"})
             else:
                 tb = traceback.format_exc()
+                log.error("[training:%d] Job failed: %s", run_id, e)
+                log.debug("[training:%d] Traceback:\n%s", run_id, tb)
                 row.status = "failed"
                 row.completed_at = datetime.datetime.utcnow()
                 row.error_message = str(e)
@@ -511,7 +581,7 @@ def _run_training_job(
                 _training_emit(run_id, q, {"type": "status", "data": "failed"})
 
     finally:
-        sys.stdout = old_stdout
+        _threaded_stdout.unregister()  # safe to call twice
         q.put(None)
         db.close()
 
