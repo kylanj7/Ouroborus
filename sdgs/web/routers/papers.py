@@ -1,17 +1,25 @@
 """Papers API: list and search papers used in dataset generation."""
+import os
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
+from ..auth import decrypt_value
 from ..db.database import get_db
-from ..db.models import Paper, Dataset
+from ..db.models import Paper, Dataset, User
 from ..deps import CurrentUser, get_current_user
 from ..schemas import PaperListResponse, PaperResponse
 
 router = APIRouter()
+
+
+class ScrapeRequest(BaseModel):
+    topic: str
+    max_results: int = 20
 
 
 @router.get("/topics", response_model=list[str])
@@ -99,3 +107,71 @@ def download_paper_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{safe_title}.pdf"'},
     )
+
+
+@router.post("/scrape")
+def scrape_papers(
+    req: ScrapeRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Search scholarly APIs for papers on a topic and save them to the database."""
+    from ...scrape import search_papers
+
+    # Resolve optional API keys
+    s2_api_key = None
+    core_api_key = None
+    user = db.query(User).filter(User.id == current_user.id).first()
+    if user and current_user.encryption_key:
+        if user.s2_token:
+            try:
+                s2_api_key = decrypt_value(user.s2_token, current_user.encryption_key)
+            except Exception:
+                pass
+        if user.core_token:
+            try:
+                core_api_key = decrypt_value(user.core_token, current_user.encryption_key)
+            except Exception:
+                pass
+    if not s2_api_key:
+        s2_api_key = os.environ.get("S2_API_KEY")
+    if not core_api_key:
+        core_api_key = os.environ.get("CORE_API_KEY")
+
+    results = search_papers(
+        topic=req.topic,
+        max_results=req.max_results,
+        s2_api_key=s2_api_key,
+        core_api_key=core_api_key,
+    )
+
+    saved = 0
+    for p_data in results:
+        # Skip duplicates by paper_id for this user
+        if p_data.get("paper_id"):
+            existing = db.query(Paper).filter(
+                Paper.user_id == current_user.id,
+                Paper.paper_id == p_data["paper_id"],
+            ).first()
+            if existing:
+                continue
+
+        paper = Paper(
+            paper_id=p_data.get("paper_id"),
+            title=p_data.get("title", "Unknown"),
+            authors=p_data.get("authors", []),
+            abstract=p_data.get("abstract", ""),
+            year=p_data.get("year"),
+            doi=p_data.get("doi"),
+            url=p_data.get("url", ""),
+            source=p_data.get("source", ""),
+            citation_count=p_data.get("citation_count", 0),
+            pdf_path=p_data.get("pdf_path"),
+            user_id=current_user.id,
+            dataset_id=None,
+        )
+        db.add(paper)
+        saved += 1
+
+    db.commit()
+    return {"saved": saved, "searched": len(results)}

@@ -296,6 +296,12 @@ export const getPapers = (page = 1, search?: string, datasetId?: number, topic?:
 
 export const getPaperTopics = () => request<string[]>('/papers/topics')
 
+export const scrapePapers = (topic: string, max_results: number) =>
+  request<{ saved: number; searched: number }>('/papers/scrape', {
+    method: 'POST',
+    body: JSON.stringify({ topic, max_results }),
+  })
+
 export async function downloadPaperPdf(paperId: number, filename: string) {
   const res = await fetch(`${BASE_URL}/papers/${paperId}/pdf`, {
     headers: { ...getAuthHeader() },

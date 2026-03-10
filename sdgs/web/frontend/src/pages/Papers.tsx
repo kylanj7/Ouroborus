@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { Search, ExternalLink, Download, ChevronLeft, ChevronRight, HardDrive, Sparkles } from 'lucide-react'
-import { getPapers, getPaperTopics, downloadPaperPdf, PaperInfo } from '../api/client'
+import { Search, ExternalLink, Download, ChevronLeft, ChevronRight, HardDrive, Sparkles, Plus } from 'lucide-react'
+import { getPapers, getPaperTopics, downloadPaperPdf, scrapePapers, PaperInfo } from '../api/client'
 
 export default function Papers() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -14,6 +14,11 @@ export default function Papers() {
   const [topics, setTopics] = useState<string[]>([])
   const [selectedTopic, setSelectedTopic] = useState('')
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+  const [showScrape, setShowScrape] = useState(false)
+  const [scrapeTopic, setScrapeTopic] = useState('')
+  const [scrapeCount, setScrapeCount] = useState(20)
+  const [scraping, setScraping] = useState(false)
+  const [scrapeMsg, setScrapeMsg] = useState('')
 
   const datasetId = searchParams.get('dataset_id')
     ? Number(searchParams.get('dataset_id'))
@@ -80,6 +85,30 @@ export default function Papers() {
     navigate(`/create?from_papers=${ids}`)
   }
 
+  const handleScrape = async () => {
+    if (!scrapeTopic.trim()) return
+    setScraping(true)
+    setScrapeMsg('')
+    try {
+      const res = await scrapePapers(scrapeTopic.trim(), scrapeCount)
+      setScrapeMsg(`Found ${res.searched} papers, saved ${res.saved} new`)
+      setShowScrape(false)
+      setScrapeTopic('')
+      setScrapeCount(20)
+      setPage(1)
+      // Refresh papers list and topics
+      getPaperTopics().then(setTopics).catch(() => {})
+      setLoading(true)
+      getPapers(1, search || undefined, datasetId, selectedTopic || undefined)
+        .then((r) => { setPapers(r.papers); setTotal(r.total) })
+        .catch(() => {})
+        .finally(() => setLoading(false))
+    } catch {
+      setScrapeMsg('Scrape failed')
+    }
+    setScraping(false)
+  }
+
   const allOnPageSelected = papers.length > 0 && papers.every((p) => selectedIds.has(p.id))
 
   return (
@@ -89,13 +118,78 @@ export default function Papers() {
           <h1>Papers</h1>
           <p>All scholarly papers used in dataset generation ({total} total)</p>
         </div>
-        {selectedIds.size > 0 && (
-          <button className="btn btn-primary" onClick={handleGenerateFromSelected}>
-            <Sparkles size={16} />
-            Generate from {selectedIds.size} Selected
+        <div style={{ display: 'flex', gap: '8px' }}>
+          {selectedIds.size > 0 && (
+            <button className="btn btn-primary" onClick={handleGenerateFromSelected}>
+              <Sparkles size={16} />
+              Generate from {selectedIds.size} Selected
+            </button>
+          )}
+          <button className="btn btn-primary" onClick={() => setShowScrape(!showScrape)}>
+            <Plus size={16} />
+            Scrape Papers
           </button>
-        )}
+        </div>
       </div>
+
+      {/* Scrape Form */}
+      {showScrape && (
+        <div className="card" style={{ marginBottom: '16px' }}>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
+            <div style={{ flex: 1 }}>
+              <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Topic</label>
+              <input
+                type="text"
+                placeholder="e.g. quantum computing, superconductors..."
+                value={scrapeTopic}
+                onChange={(e) => setScrapeTopic(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleScrape()}
+                autoFocus
+                style={{ width: '100%', fontSize: '14px' }}
+              />
+            </div>
+            <div style={{ width: '120px' }}>
+              <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Max papers</label>
+              <input
+                type="number"
+                min={1}
+                max={200}
+                value={scrapeCount}
+                onChange={(e) => setScrapeCount(Math.max(1, parseInt(e.target.value) || 1))}
+                style={{ width: '100%', fontSize: '14px' }}
+              />
+            </div>
+            <button
+              className="btn btn-primary"
+              onClick={handleScrape}
+              disabled={scraping || !scrapeTopic.trim()}
+              style={{ whiteSpace: 'nowrap' }}
+            >
+              {scraping ? <span className="spinner" style={{ width: '14px', height: '14px' }} /> : 'Search'}
+            </button>
+            <button className="btn" onClick={() => setShowScrape(false)}>
+              Cancel
+            </button>
+          </div>
+          <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '8px', marginBottom: 0 }}>
+            Searches arXiv, Semantic Scholar, OpenAlex, and CORE for scholarly papers.
+          </p>
+        </div>
+      )}
+
+      {scrapeMsg && (
+        <div style={{
+          background: 'rgba(118, 185, 0, 0.1)',
+          border: '1px solid rgba(118, 185, 0, 0.3)',
+          borderRadius: 'var(--radius-sm)',
+          padding: '8px 12px',
+          color: 'var(--accent-green)',
+          fontSize: '13px',
+          marginBottom: '16px',
+        }}>
+          {scrapeMsg}
+        </div>
+      )}
 
       {/* Search + Topic Filter */}
       <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
