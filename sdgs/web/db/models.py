@@ -28,10 +28,10 @@ class Dataset(Base):
     __tablename__ = "datasets"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     name = Column(String(500), nullable=False)
     topic = Column(String(500), nullable=False)
-    status = Column(String(20), nullable=False, default="pending")
+    status = Column(String(20), nullable=False, default="pending", index=True)
 
     provider = Column(String(100), nullable=True)
     model = Column(String(200), nullable=True)
@@ -86,8 +86,8 @@ class Paper(Base):
     keywords = Column(JSON, default=list)
     qa_pair_count = Column(Integer, default=0)
 
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    dataset_id = Column(Integer, ForeignKey("datasets.id"), nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    dataset_id = Column(Integer, ForeignKey("datasets.id"), nullable=True, index=True)
     dataset = relationship("Dataset", back_populates="papers")
     qa_pairs = relationship("QAPair", back_populates="paper", cascade="all, delete-orphan")
 
@@ -106,10 +106,10 @@ class QAPair(Base):
     source_title = Column(String(1000), nullable=True)
     was_healed = Column(Boolean, default=False)
 
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    paper_id = Column(Integer, ForeignKey("papers.id"), nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    paper_id = Column(Integer, ForeignKey("papers.id"), nullable=True, index=True)
     paper = relationship("Paper", back_populates="qa_pairs")
-    dataset_id = Column(Integer, ForeignKey("datasets.id"), nullable=True)
+    dataset_id = Column(Integer, ForeignKey("datasets.id"), nullable=True, index=True)
     dataset = relationship("Dataset", back_populates="qa_pairs")
 
 
@@ -134,8 +134,8 @@ class TrainingRun(Base):
     __tablename__ = "training_runs"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    dataset_id = Column(Integer, ForeignKey("datasets.id"), nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    dataset_id = Column(Integer, ForeignKey("datasets.id"), nullable=True, index=True)
 
     run_name = Column(String(500), nullable=False)
     status = Column(String(20), nullable=False, default="pending")
@@ -182,8 +182,8 @@ class EvaluationRun(Base):
     __tablename__ = "evaluation_runs"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    training_run_id = Column(Integer, ForeignKey("training_runs.id"), nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    training_run_id = Column(Integer, ForeignKey("training_runs.id"), nullable=True, index=True)
 
     run_name = Column(String(500), nullable=False)
     status = Column(String(20), nullable=False, default="pending")

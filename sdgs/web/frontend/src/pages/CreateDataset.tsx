@@ -249,8 +249,8 @@ export default function CreateDataset() {
                     <input
                       type="number"
                       value={row.targetSize}
-                      onChange={(e) => updateBatchRow(row.id, 'targetSize', Math.max(10, parseInt(e.target.value) || 10))}
-                      min={10}
+                      onChange={(e) => updateBatchRow(row.id, 'targetSize', Math.max(1, parseInt(e.target.value) || 1))}
+                      min={1}
                       disabled={generating}
                       style={{ width: '80px', fontSize: '14px', padding: '8px', textAlign: 'right' }}
                     />
@@ -344,8 +344,8 @@ export default function CreateDataset() {
                   <input
                     type="number"
                     value={targetSize}
-                    onChange={(e) => setTargetSize(Math.max(10, parseInt(e.target.value) || 10))}
-                    min={10}
+                    onChange={(e) => setTargetSize(Math.max(1, parseInt(e.target.value) || 1))}
+                    min={1}
                     disabled={generating}
                     style={{ width: '100px' }}
                   />
@@ -440,7 +440,7 @@ export default function CreateDataset() {
               </>
             ) : selectedProvider?.api_key_env ? (
               <>
-                <XCircle size={14} style={{ color: 'var(--accent-gold)' }} />
+                <XCircle size={14} style={{ color: 'var(--accent-yellow)' }} />
                 <span style={{ color: 'var(--text-secondary)' }}>
                   No API key stored. Will use env var ({selectedProvider.api_key_env}) or add key in{' '}
                   <a href="/settings" style={{ color: 'var(--accent-blue)' }}>Settings</a>

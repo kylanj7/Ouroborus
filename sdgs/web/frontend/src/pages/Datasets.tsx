@@ -42,7 +42,7 @@ export default function Datasets() {
 
   // Auto-scroll terminal
   useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    logEndRef.current?.scrollIntoView({ behavior: 'instant' })
   }, [logs.length])
 
   const totalPages = Math.ceil(total / 20)
@@ -238,7 +238,7 @@ export default function Datasets() {
             borderBottom: '1px solid var(--border-subtle)',
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Terminal size={14} style={{ color: 'var(--accent-cyan)' }} />
+              <Terminal size={14} style={{ color: 'var(--accent-blue)' }} />
               <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
                 Generating: {runningDataset?.topic || 'Dataset'}
               </span>

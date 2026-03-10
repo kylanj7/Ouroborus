@@ -1,29 +1,30 @@
 import { create } from 'zustand'
-import { getGalaxyData, getPaperDetail, GalaxyData, PaperDetail } from '../api/client'
+import { getGalaxyData, getPaperDetail, GalaxyData, GalaxyNode, PaperDetail } from '../api/client'
+
+interface SelectedNode {
+  type: 'paper' | 'dataset' | 'qa'
+  node: GalaxyNode
+  detail?: PaperDetail | null
+}
 
 interface GalaxyStore {
   data: GalaxyData | null
-  selectedPaper: PaperDetail | null
-  expandedPaperGraphId: string | null
-  selectedDatasetNode: any | null
+  selectedNode: SelectedNode | null
   loading: boolean
   error: string | null
   searchQuery: string
   activeCluster: number | null
 
   fetchData: () => Promise<void>
-  selectPaper: (paperId: number, graphId: string) => Promise<void>
-  selectDatasetNode: (node: any) => void
+  selectNode: (node: GalaxyNode) => Promise<void>
   clearSelection: () => void
   setSearchQuery: (q: string) => void
   setActiveCluster: (id: number | null) => void
 }
 
-export const useGalaxyStore = create<GalaxyStore>((set) => ({
+export const useGalaxyStore = create<GalaxyStore>((set, get) => ({
   data: null,
-  selectedPaper: null,
-  expandedPaperGraphId: null,
-  selectedDatasetNode: null,
+  selectedNode: null,
   loading: false,
   error: null,
   searchQuery: '',
@@ -39,27 +40,32 @@ export const useGalaxyStore = create<GalaxyStore>((set) => ({
     }
   },
 
-  selectPaper: async (paperId: number, graphId: string) => {
-    set({ expandedPaperGraphId: graphId, selectedDatasetNode: null })
-    try {
-      const detail = await getPaperDetail(paperId)
-      set({ selectedPaper: detail })
-    } catch (e) {
-      set({ error: String(e) })
+  selectNode: async (node: GalaxyNode) => {
+    const type = node.type as 'paper' | 'dataset' | 'qa'
+
+    // Click same node again -> deselect
+    if (get().selectedNode?.node.id === node.id) {
+      set({ selectedNode: null, activeCluster: null })
+      return
+    }
+
+    if (type === 'paper') {
+      const paperId = parseInt(node.id.replace('paper-', ''))
+      set({ selectedNode: { type, node, detail: null } })
+      try {
+        const detail = await getPaperDetail(paperId)
+        set({ selectedNode: { type, node, detail } })
+      } catch (e) {
+        set({ error: String(e) })
+      }
+    } else if (type === 'dataset') {
+      set({ selectedNode: { type, node }, activeCluster: node.cluster })
+    } else {
+      set({ selectedNode: { type, node } })
     }
   },
 
-  selectDatasetNode: (node) => set({
-    selectedDatasetNode: node,
-    selectedPaper: null,
-    expandedPaperGraphId: null,
-  }),
-
-  clearSelection: () => set({
-    selectedPaper: null,
-    expandedPaperGraphId: null,
-    selectedDatasetNode: null,
-  }),
+  clearSelection: () => set({ selectedNode: null, activeCluster: null }),
   setSearchQuery: (q) => set({ searchQuery: q }),
   setActiveCluster: (id) => set({ activeCluster: id }),
 }))

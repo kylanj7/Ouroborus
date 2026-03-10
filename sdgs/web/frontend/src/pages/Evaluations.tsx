@@ -15,7 +15,7 @@ const statusClass: Record<string, string> = {
 function metricColor(value: number | null): string {
   if (value == null) return 'var(--text-muted)'
   if (value >= 0.8) return 'var(--accent-green)'
-  if (value >= 0.6) return 'var(--accent-gold)'
+  if (value >= 0.6) return 'var(--accent-yellow)'
   return 'var(--accent-pink)'
 }
 
@@ -32,17 +32,21 @@ export default function Evaluations() {
 
   // Quick-start evaluation form
   const [showStart, setShowStart] = useState(!!trainingRunId)
+  const [adapters, setAdapters] = useState<ArtifactEntry[]>([])
   const [mergedModels, setMergedModels] = useState<ArtifactEntry[]>([])
   const [modelPath, setModelPath] = useState('')
   const [customModelPath, setCustomModelPath] = useState(false)
   const [judgeModel, setJudgeModel] = useState('gpt-oss:120b')
-  const [maxSamples, setMaxSamples] = useState(50)
+  const [maxSamples, setMaxSamples] = useState(385)
   const [startError, setStartError] = useState('')
   const [starting, setStarting] = useState(false)
 
   useEffect(() => {
     fetchEvaluations()
-    getArtifacts().then((res) => setMergedModels(res.merged_models)).catch(() => {})
+    getArtifacts().then((res) => {
+      setAdapters(res.adapters)
+      setMergedModels(res.merged_models)
+    }).catch(() => {})
   }, [])
 
   const totalPages = Math.ceil(evalsTotal / 20)
@@ -106,10 +110,21 @@ export default function Evaluations() {
                     disabled={starting}
                     style={{ fontSize: '14px' }}
                   >
-                    <option value="">Select a merged model...</option>
-                    {mergedModels.map((a) => (
-                      <option key={a.path} value={a.path}>{a.label}</option>
-                    ))}
+                    <option value="">Select a model...</option>
+                    {adapters.length > 0 && (
+                      <optgroup label="Adapters">
+                        {adapters.map((a) => (
+                          <option key={a.path} value={a.path}>{a.label}</option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {mergedModels.length > 0 && (
+                      <optgroup label="Merged Models">
+                        {mergedModels.map((a) => (
+                          <option key={a.path} value={a.path}>{a.label}</option>
+                        ))}
+                      </optgroup>
+                    )}
                     <option value="__custom__">Custom path...</option>
                   </select>
                 ) : (

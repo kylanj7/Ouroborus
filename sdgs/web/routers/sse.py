@@ -1,6 +1,7 @@
 """Server-Sent Events endpoint for real-time dataset pipeline progress."""
 import asyncio
 import json
+import queue
 
 from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
@@ -16,51 +17,53 @@ _SSE_HEADERS = {
 }
 
 
+async def _await_queue_item(q: queue.Queue, timeout: float = 1.0):
+    """Block on a stdlib queue.Queue without busy-waiting by offloading to a thread."""
+    loop = asyncio.get_running_loop()
+    try:
+        return await loop.run_in_executor(None, q.get, True, timeout)
+    except queue.Empty:
+        return _EMPTY_SENTINEL
+
+_EMPTY_SENTINEL = object()
+
+
+async def _stream_from_queue(q, event_id: int):
+    """Shared generator logic: block-wait on queue items and yield SSE frames."""
+    while True:
+        try:
+            item = await _await_queue_item(q)
+            if item is _EMPTY_SENTINEL:
+                continue
+            if item is None:
+                yield f"id: {event_id}\ndata: {json.dumps({'type': 'done', 'data': 'stream_end'})}\n\n"
+                return
+            yield f"id: {event_id}\ndata: {json.dumps(item)}\n\n"
+            event_id += 1
+        except asyncio.CancelledError:
+            return
+
+
 @router.get("/datasets/{dataset_id}")
 async def dataset_events(dataset_id: int, last_id: int = Query(0, ge=0)):
-    """SSE stream for a running dataset pipeline — sends log lines, status updates, completion.
-
-    Supports reconnection via `last_id` query param: the client sends the last
-    event ID it received, and the server replays any stored logs after that point
-    before switching to live queue streaming.
-    """
+    """SSE stream for a running dataset pipeline."""
 
     async def event_generator():
-        # Replay stored logs for reconnection (skip already-received events)
         stored = get_job_logs(dataset_id)
-        event_id = len(stored)  # next live event starts after stored logs
+        event_id = len(stored)
 
         for i, item in enumerate(stored):
             if i < last_id:
                 continue
             yield f"id: {i}\ndata: {json.dumps(item)}\n\n"
 
-        # Stream live items from queue
         q = get_job_queue(dataset_id)
         if q is None:
-            # Job already finished — just send done after replay
             yield f"id: {event_id}\ndata: {json.dumps({'type': 'done', 'data': 'stream_end'})}\n\n"
             return
 
-        while True:
-            try:
-                item = None
-                try:
-                    item = q.get_nowait()
-                except Exception:
-                    await asyncio.sleep(0.1)
-                    continue
-
-                if item is None:
-                    # Sentinel — stream is done
-                    yield f"id: {event_id}\ndata: {json.dumps({'type': 'done', 'data': 'stream_end'})}\n\n"
-                    return
-
-                yield f"id: {event_id}\ndata: {json.dumps(item)}\n\n"
-                event_id += 1
-
-            except asyncio.CancelledError:
-                return
+        async for frame in _stream_from_queue(q, event_id):
+            yield frame
 
     return StreamingResponse(event_generator(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
@@ -83,24 +86,8 @@ async def training_events(run_id: int, last_id: int = Query(0, ge=0)):
             yield f"id: {event_id}\ndata: {json.dumps({'type': 'done', 'data': 'stream_end'})}\n\n"
             return
 
-        while True:
-            try:
-                item = None
-                try:
-                    item = q.get_nowait()
-                except Exception:
-                    await asyncio.sleep(0.1)
-                    continue
-
-                if item is None:
-                    yield f"id: {event_id}\ndata: {json.dumps({'type': 'done', 'data': 'stream_end'})}\n\n"
-                    return
-
-                yield f"id: {event_id}\ndata: {json.dumps(item)}\n\n"
-                event_id += 1
-
-            except asyncio.CancelledError:
-                return
+        async for frame in _stream_from_queue(q, event_id):
+            yield frame
 
     return StreamingResponse(event_generator(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
@@ -123,23 +110,7 @@ async def loop_events(loop_id: str, last_id: int = Query(0, ge=0)):
             yield f"id: {event_id}\ndata: {json.dumps({'type': 'done', 'data': 'stream_end'})}\n\n"
             return
 
-        while True:
-            try:
-                item = None
-                try:
-                    item = q.get_nowait()
-                except Exception:
-                    await asyncio.sleep(0.1)
-                    continue
-
-                if item is None:
-                    yield f"id: {event_id}\ndata: {json.dumps({'type': 'done', 'data': 'stream_end'})}\n\n"
-                    return
-
-                yield f"id: {event_id}\ndata: {json.dumps(item)}\n\n"
-                event_id += 1
-
-            except asyncio.CancelledError:
-                return
+        async for frame in _stream_from_queue(q, event_id):
+            yield frame
 
     return StreamingResponse(event_generator(), media_type="text/event-stream", headers=_SSE_HEADERS)

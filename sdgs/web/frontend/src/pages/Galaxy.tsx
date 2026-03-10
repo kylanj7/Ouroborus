@@ -1,58 +1,68 @@
 import { useEffect, useCallback, useMemo } from 'react'
 import { useGalaxyStore } from '../store/galaxyStore'
-import { useGalaxyGraph } from '../hooks/useGalaxyGraph'
 import GalaxyCanvas from '../components/galaxy/GalaxyCanvas'
 import GalaxyControls from '../components/galaxy/GalaxyControls'
-import GalaxyLegend from '../components/galaxy/GalaxyLegend'
 import PaperDetailPanel from '../components/galaxy/PaperDetail'
 import DatasetDetailPanel from '../components/galaxy/DatasetDetail'
 
 export default function Galaxy() {
   const {
-    data, selectedPaper, selectedDatasetNode, loading, error, searchQuery, activeCluster,
-    fetchData, selectPaper, selectDatasetNode, clearSelection,
-    setSearchQuery, setActiveCluster,
+    data, selectedNode, loading, error, searchQuery, activeCluster,
+    fetchData, selectNode, clearSelection, setSearchQuery, setActiveCluster,
   } = useGalaxyStore()
-
-  const graphData = useGalaxyGraph()
 
   useEffect(() => {
     fetchData()
   }, [])
 
-  // Papers in the selected dataset's cluster (for the dataset panel)
+  // Inline graph filtering (replaces useGalaxyGraph hook)
+  const graphData = useMemo(() => {
+    if (!data) return { nodes: [], links: [] }
+
+    let nodes = [...data.nodes]
+    let links = [...data.links]
+
+    // Filter by cluster
+    if (activeCluster !== null) {
+      const clusterNodeIds = new Set(
+        nodes.filter(n => n.cluster === activeCluster).map(n => n.id)
+      )
+      nodes = nodes.filter(n => clusterNodeIds.has(n.id))
+      links = links.filter(l => {
+        const src = typeof l.source === 'string' ? l.source : (l.source as any).id
+        const tgt = typeof l.target === 'string' ? l.target : (l.target as any).id
+        return clusterNodeIds.has(src) && clusterNodeIds.has(tgt)
+      })
+    }
+
+    // Search highlighting
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase()
+      nodes = nodes.map(n => ({
+        ...n,
+        _match: n.label.toLowerCase().includes(q) ||
+          (n.type === 'qa' && n.instruction?.toLowerCase().includes(q)),
+      }))
+    }
+
+    return { nodes, links }
+  }, [data, searchQuery, activeCluster])
+
+  // Papers in the selected dataset's cluster (for dataset detail panel)
   const datasetPapers = useMemo(() => {
-    if (!selectedDatasetNode) return []
+    if (!selectedNode || selectedNode.type !== 'dataset') return []
     return graphData.nodes.filter(
-      (n: any) => n.type === 'paper' && n.cluster === selectedDatasetNode.cluster,
+      (n: any) => n.type === 'paper' && n.cluster === selectedNode.node.cluster,
     )
-  }, [selectedDatasetNode, graphData.nodes])
+  }, [selectedNode, graphData.nodes])
 
   const handleNodeClick = useCallback((node: any) => {
-    if (node.type === 'paper') {
-      const paperId = parseInt(node.id.replace('paper-', ''))
-      selectPaper(paperId, node.id)
-    } else if (node.type === 'dataset') {
-      if (selectedDatasetNode?.id === node.id) {
-        // Click same dataset again → deselect
-        clearSelection()
-        setActiveCluster(null)
-      } else {
-        selectDatasetNode(node)
-        setActiveCluster(node.cluster)
-      }
-    }
-  }, [selectPaper, selectDatasetNode, clearSelection, setActiveCluster, selectedDatasetNode])
+    selectNode(node)
+  }, [selectNode])
 
   const handleDatasetPaperClick = useCallback((paperNode: any) => {
-    const paperId = parseInt(paperNode.id.replace('paper-', ''))
-    selectPaper(paperId, paperNode.id)
-  }, [selectPaper])
-
-  const handleClosePanel = useCallback(() => {
-    clearSelection()
-    if (selectedDatasetNode) setActiveCluster(null)
-  }, [clearSelection, setActiveCluster, selectedDatasetNode])
+    selectNode(paperNode)
+  }, [selectNode])
 
   if (loading) {
     return <div style={{ textAlign: 'center', padding: '40px' }}><div className="spinner" /></div>
@@ -69,29 +79,18 @@ export default function Galaxy() {
 
   return (
     <div style={{ position: 'relative', height: 'calc(100vh - 48px)' }}>
-      {/* Controls overlay */}
+      {/* Controls overlay (search + cluster toggles) */}
       <div style={{
         position: 'absolute', top: '16px', left: '16px', zIndex: 10,
-        display: 'flex', flexDirection: 'column', gap: '8px',
       }}>
         <GalaxyControls
           searchQuery={searchQuery}
           onSearch={setSearchQuery}
+          clusters={data?.clusters || []}
+          activeCluster={activeCluster}
+          onToggleCluster={setActiveCluster}
         />
       </div>
-
-      {/* Legend overlay */}
-      {data && data.clusters.length > 0 && (
-        <div style={{
-          position: 'absolute', bottom: '16px', left: '16px', zIndex: 10,
-        }}>
-          <GalaxyLegend
-            clusters={data.clusters}
-            activeCluster={activeCluster}
-            onToggle={setActiveCluster}
-          />
-        </div>
-      )}
 
       {/* Graph */}
       <GalaxyCanvas
@@ -102,17 +101,17 @@ export default function Galaxy() {
       />
 
       {/* Paper detail panel */}
-      {selectedPaper && (
-        <PaperDetailPanel paper={selectedPaper} onClose={handleClosePanel} />
+      {selectedNode?.type === 'paper' && selectedNode.detail && (
+        <PaperDetailPanel paper={selectedNode.detail} onClose={clearSelection} />
       )}
 
       {/* Dataset detail panel */}
-      {selectedDatasetNode && !selectedPaper && (
+      {selectedNode?.type === 'dataset' && (
         <DatasetDetailPanel
-          node={selectedDatasetNode}
+          node={selectedNode.node}
           papers={datasetPapers}
           onPaperClick={handleDatasetPaperClick}
-          onClose={handleClosePanel}
+          onClose={clearSelection}
         />
       )}
     </div>

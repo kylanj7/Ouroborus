@@ -15,7 +15,7 @@ const statusClass: Record<string, string> = {
 function metricColor(value: number | null): string {
   if (value == null) return 'var(--text-muted)'
   if (value >= 0.8) return 'var(--accent-green)'
-  if (value >= 0.6) return 'var(--accent-gold)'
+  if (value >= 0.6) return 'var(--accent-yellow)'
   return 'var(--accent-pink)'
 }
 
@@ -165,7 +165,7 @@ export default function EvaluationDetail() {
         </div>
         <div className="card" style={{ padding: '12px 16px' }}>
           <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>Skipped</div>
-          <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--accent-gold)' }}>{currentEval.samples_skipped}</div>
+          <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--accent-yellow)' }}>{currentEval.samples_skipped}</div>
         </div>
         <div className="card" style={{ padding: '12px 16px' }}>
           <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>Failed</div>
@@ -221,7 +221,7 @@ export default function EvaluationDetail() {
                     <div style={{ marginTop: '12px', borderTop: '1px solid var(--border-subtle)', paddingTop: '12px' }}>
                       {answer && (
                         <div style={{ marginBottom: '8px' }}>
-                          <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--accent-cyan)', marginBottom: '4px' }}>
+                          <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--accent-blue)', marginBottom: '4px' }}>
                             ANSWER
                           </div>
                           <div style={{
@@ -259,7 +259,7 @@ export default function EvaluationDetail() {
                       )}
                       {Object.keys(scores).length > 0 && (
                         <div style={{ marginBottom: '8px' }}>
-                          <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--accent-gold)', marginBottom: '4px' }}>
+                          <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--accent-yellow)', marginBottom: '4px' }}>
                             SCORES
                           </div>
                           <div style={{ display: 'flex', gap: '16px', fontSize: '13px', color: 'var(--text-secondary)' }}>
@@ -413,7 +413,7 @@ export default function EvaluationDetail() {
               <div style={{ display: 'flex', gap: '16px', marginBottom: '12px' }}>
                 {currentEval.correction_results.total_corrected != null && (
                   <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-                    Corrected: <strong style={{ color: 'var(--accent-cyan)' }}>
+                    Corrected: <strong style={{ color: 'var(--accent-blue)' }}>
                       {String(currentEval.correction_results.total_corrected)}
                     </strong>
                   </div>

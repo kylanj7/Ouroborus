@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { Search, ExternalLink, Download, ChevronLeft, ChevronRight, HardDrive, Sparkles } from 'lucide-react'
-import { getPapers, getPaperTopics, PaperInfo } from '../api/client'
+import { getPapers, getPaperTopics, downloadPaperPdf, PaperInfo } from '../api/client'
 
 export default function Papers() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -215,9 +215,19 @@ export default function Papers() {
                     <div style={{ fontWeight: 500, color: 'var(--text-primary)', lineHeight: 1.4, display: 'flex', alignItems: 'center', gap: '6px' }}>
                       {p.pdf_path ? (
                         <a
-                          href={`/api/papers/${p.id}/pdf`}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                          href="#"
+                          onClick={async (e) => {
+                            e.preventDefault()
+                            try {
+                              const res = await fetch(`/api/papers/${p.id}/pdf`, {
+                                headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` },
+                              })
+                              if (!res.ok) return
+                              const blob = await res.blob()
+                              const url = URL.createObjectURL(blob)
+                              window.open(url, '_blank')
+                            } catch { /* ignore */ }
+                          }}
                           style={{ color: 'var(--accent-blue)', textDecoration: 'none' }}
                           title="View PDF"
                         >
@@ -265,14 +275,20 @@ export default function Papers() {
                   </td>
                   <td style={tdStyle}>
                     {p.pdf_path ? (
-                      <a
-                        href={`/api/papers/${p.id}/pdf`}
-                        download
-                        style={{ color: 'var(--accent-blue)', display: 'flex' }}
+                      <button
+                        onClick={() => downloadPaperPdf(p.id, p.title)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: 'var(--accent-blue)',
+                          display: 'flex',
+                          cursor: 'pointer',
+                          padding: 0,
+                        }}
                         title="Download PDF"
                       >
                         <Download size={14} />
-                      </a>
+                      </button>
                     ) : p.url ? (
                       <a
                         href={p.url}

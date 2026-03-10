@@ -218,7 +218,8 @@ class GalaxyNode(BaseModel):
     qa_pair_count: int = 0
     # QA-specific
     instruction: str | None = None
-    output_preview: str | None = None
+    answer_text: str | None = None
+    is_valid: bool | None = None
 
 
 class GalaxyLink(BaseModel):
@@ -233,6 +234,7 @@ class ClusterInfo(BaseModel):
     label: str
     color: str
     paper_count: int
+    qa_pair_count: int = 0
 
 
 class GalaxyData(BaseModel):
@@ -318,7 +320,7 @@ class StartEvaluationRequest(BaseModel):
     model_path: str | None = None
     test_dataset_path: str | None = None
     judge_model: str = "gpt-oss:120b"
-    max_samples: int = 50
+    max_samples: int = 385
 
 
 class EvaluationRunResponse(BaseModel):

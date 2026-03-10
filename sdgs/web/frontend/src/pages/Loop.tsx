@@ -45,7 +45,7 @@ const STAGE_LABELS: Record<string, string> = {
 const STOP_LABELS: Record<string, { label: string; color: string; icon: typeof CheckCircle }> = {
   TARGET_REACHED: { label: 'Target Reached', color: 'var(--accent-green)', icon: CheckCircle },
   REGRESSION_DETECTED: { label: 'Regression Detected', color: 'var(--status-failed)', icon: AlertTriangle },
-  CONVERGED: { label: 'Converged (Plateau)', color: 'var(--accent-gold)', icon: Clock },
+  CONVERGED: { label: 'Converged (Plateau)', color: 'var(--accent-yellow)', icon: Clock },
   MAX_EVOLUTIONS: { label: 'Max Evolutions', color: 'var(--accent-orange)', icon: XCircle },
   MANUAL_STOP: { label: 'Manual Stop', color: 'var(--text-secondary)', icon: Square },
   ABORTED: { label: 'Aborted', color: 'var(--status-failed)', icon: XCircle },
@@ -107,7 +107,7 @@ export default function Loop() {
 
   // Auto-scroll logs
   useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    logEndRef.current?.scrollIntoView({ behavior: 'instant' })
   }, [sse.logs.length])
 
   const isRunning = status?.status === 'running' || (sse.status === 'running' && !sse.done)
@@ -359,7 +359,7 @@ export default function Loop() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 16 }}>
             <Stat label="Status" value={isRunning ? 'Running' : (status?.status ?? 'idle')} color={isRunning ? 'var(--status-running)' : 'var(--text-secondary)'} />
             <Stat label="Evolution" value={`${currentEvo} / ${maxEvos}`} />
-            <Stat label="Stage" value={STAGE_LABELS[currentStage] ?? currentStage} color={isRunning ? 'var(--accent-cyan)' : undefined} />
+            <Stat label="Stage" value={STAGE_LABELS[currentStage] ?? currentStage} color={isRunning ? 'var(--accent-blue)' : undefined} />
             {(status?.config_snapshot?.training as any)?.model_config && (
               <Stat label="Model" value={(status?.config_snapshot?.training as any).model_config} />
             )}
@@ -379,7 +379,7 @@ export default function Loop() {
               <Stat label="Current Score" value={`${currentScore.toFixed(1)}%`} color={currentScore >= targetAccuracy ? 'var(--accent-green)' : 'var(--accent-blue)'} />
             )}
             {bestScore != null && (
-              <Stat label="Best Score" value={`${bestScore.toFixed(1)}%`} color="var(--accent-gold)" />
+              <Stat label="Best Score" value={`${bestScore.toFixed(1)}%`} color="var(--accent-yellow)" />
             )}
             <Stat label="Target" value={`${targetAccuracy}%`} />
             {displayStopReason && (() => {
@@ -447,9 +447,9 @@ export default function Loop() {
                 <Legend wrapperStyle={{ fontSize: 11 }} />
                 <ReferenceLine y={targetAccuracy} stroke="var(--accent-green)" strokeDasharray="6 3" label={{ value: `Target ${targetAccuracy}%`, fill: 'var(--accent-green)', fontSize: 10 }} />
                 <Line type="monotone" dataKey="Overall Score" stroke="var(--accent-blue)" strokeWidth={2} dot={{ r: 3 }} />
-                <Line type="monotone" dataKey="Factual Accuracy" stroke="var(--accent-cyan)" strokeWidth={1} strokeDasharray="4 2" dot={false} />
+                <Line type="monotone" dataKey="Factual Accuracy" stroke="var(--accent-blue)" strokeWidth={1} strokeDasharray="4 2" dot={false} />
                 <Line type="monotone" dataKey="Completeness" stroke="var(--accent-purple)" strokeWidth={1} strokeDasharray="4 2" dot={false} />
-                <Line type="monotone" dataKey="Technical Precision" stroke="var(--accent-gold)" strokeWidth={1} strokeDasharray="4 2" dot={false} />
+                <Line type="monotone" dataKey="Technical Precision" stroke="var(--accent-yellow)" strokeWidth={1} strokeDasharray="4 2" dot={false} />
                 <Line type="monotone" dataKey="Best Score" stroke="var(--accent-green)" strokeWidth={1} strokeDasharray="2 2" dot={false} />
               </LineChart>
             </ResponsiveContainer>
@@ -481,7 +481,7 @@ export default function Loop() {
                   <tr key={e.evolution} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
                     <td style={cellStyle}>{e.evolution}</td>
                     <td style={{ ...cellStyle, color: 'var(--accent-blue)', fontWeight: 600 }}>{e.overall_score.toFixed(1)}</td>
-                    <td style={{ ...cellStyle, color: 'var(--accent-gold)' }}>{e.best_score_so_far.toFixed(1)}</td>
+                    <td style={{ ...cellStyle, color: 'var(--accent-yellow)' }}>{e.best_score_so_far.toFixed(1)}</td>
                     <td style={{ ...cellStyle, color: e.delta_from_previous >= 0 ? 'var(--accent-green)' : 'var(--status-failed)' }}>
                       {e.delta_from_previous >= 0 ? '+' : ''}{e.delta_from_previous.toFixed(1)}
                     </td>
@@ -491,7 +491,7 @@ export default function Loop() {
                     <td style={{ ...cellStyle, color: e.consecutive_regressions > 0 ? 'var(--status-failed)' : 'var(--text-secondary)' }}>
                       {e.consecutive_regressions}
                     </td>
-                    <td style={{ ...cellStyle, color: e.consecutive_plateaus > 0 ? 'var(--accent-gold)' : 'var(--text-secondary)' }}>
+                    <td style={{ ...cellStyle, color: e.consecutive_plateaus > 0 ? 'var(--accent-yellow)' : 'var(--text-secondary)' }}>
                       {e.consecutive_plateaus}
                     </td>
                     <td style={cellStyle}>{e.target_reached ? <CheckCircle size={13} color="var(--accent-green)" /> : '-'}</td>
@@ -517,9 +517,9 @@ export default function Loop() {
                 <div key={domain} style={{ padding: 14, background: 'var(--bg-input)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
                   <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>{domain}</div>
                   <div style={{ fontSize: 11, color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: 3 }}>
-                    <div>FA: <span style={{ color: 'var(--accent-cyan)' }}>{(scores as any).factual_accuracy?.toFixed(1) ?? '-'}</span></div>
+                    <div>FA: <span style={{ color: 'var(--accent-blue)' }}>{(scores as any).factual_accuracy?.toFixed(1) ?? '-'}</span></div>
                     <div>CO: <span style={{ color: 'var(--accent-purple)' }}>{(scores as any).completeness?.toFixed(1) ?? '-'}</span></div>
-                    <div>TP: <span style={{ color: 'var(--accent-gold)' }}>{(scores as any).technical_precision?.toFixed(1) ?? '-'}</span></div>
+                    <div>TP: <span style={{ color: 'var(--accent-yellow)' }}>{(scores as any).technical_precision?.toFixed(1) ?? '-'}</span></div>
                     <div style={{ marginTop: 3, fontWeight: 600, color: 'var(--accent-blue)' }}>
                       Overall: {(scores as any).overall_score?.toFixed(1) ?? '-'}
                     </div>

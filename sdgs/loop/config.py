@@ -62,6 +62,14 @@ class FeedbackConfig:
 
 
 @dataclass
+class WandbConfig:
+    enabled: bool = False
+    project: str = "ouroborus-evolution"
+    entity: str = ""       # empty = wandb default entity
+    tags: list[str] = field(default_factory=list)
+
+
+@dataclass
 class LoopConfig:
     qftl: QFTLConfig = field(default_factory=QFTLConfig)
     evolution: EvolutionConfig = field(default_factory=EvolutionConfig)
@@ -69,6 +77,7 @@ class LoopConfig:
     training: TrainingConfig = field(default_factory=TrainingConfig)
     evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
     feedback: FeedbackConfig = field(default_factory=FeedbackConfig)
+    wandb: WandbConfig = field(default_factory=WandbConfig)
 
 
 def _build_dataclass(cls: type, raw: dict[str, Any] | None):
@@ -95,4 +104,5 @@ def load_loop_config(path: Path | str | None = None) -> LoopConfig:
         training=_build_dataclass(TrainingConfig, raw.get("training")),
         evaluation=_build_dataclass(EvaluationConfig, raw.get("evaluation")),
         feedback=_build_dataclass(FeedbackConfig, raw.get("feedback")),
+        wandb=_build_dataclass(WandbConfig, raw.get("wandb")),
     )

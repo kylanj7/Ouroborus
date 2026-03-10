@@ -245,7 +245,7 @@ export default function DatasetDetail() {
                       </div>
                       <div style={{ display: 'flex', gap: '6px', flexShrink: 0, alignItems: 'center' }}>
                         {qa.was_healed && (
-                          <span className="badge" style={{ background: 'rgba(255, 214, 102, 0.2)', color: 'var(--accent-gold)', fontSize: '11px' }}>
+                          <span className="badge" style={{ background: 'rgba(255, 214, 102, 0.2)', color: 'var(--accent-yellow)', fontSize: '11px' }}>
                             healed
                           </span>
                         )}
@@ -335,7 +335,7 @@ export default function DatasetDetail() {
                           </div>
                         )}
                         <div>
-                          <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--accent-cyan)', marginBottom: '4px' }}>
+                          <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--accent-blue)', marginBottom: '4px' }}>
                             ANSWER
                           </div>
                           <div style={{

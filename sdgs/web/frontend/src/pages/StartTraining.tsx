@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ChevronDown, ChevronRight, StopCircle } from 'lucide-react'
-import { getDatasets, startTraining, cancelTraining, getConfigs, getArtifacts, importFromHuggingFace, Dataset, ConfigInfo, ArtifactEntry } from '../api/client'
+import { getDatasets, startTraining, cancelTraining, getConfigs, getArtifacts, getBaseModels, downloadBaseModel, importFromHuggingFace, Dataset, ConfigInfo, ArtifactEntry } from '../api/client'
 import { useTrainingSSE } from '../hooks/useTrainingSSE'
 
 export default function StartTraining() {
@@ -26,7 +26,13 @@ export default function StartTraining() {
   const [hfImporting, setHfImporting] = useState(false)
 
   // Model config
+  const [modelSource, setModelSource] = useState<'local' | 'huggingface'>('huggingface')
+  const [localModels, setLocalModels] = useState<ArtifactEntry[]>([])
   const [baseModel, setBaseModel] = useState('Qwen/Qwen2.5-14B-Instruct')
+  const [hfModelId, setHfModelId] = useState('Qwen/Qwen2.5-14B-Instruct')
+  const [downloadingModel, setDownloadingModel] = useState(false)
+  const [downloadProgress, setDownloadProgress] = useState('')
+  const [downloadPercent, setDownloadPercent] = useState(-1)
   const [modelSize, setModelSize] = useState('14B')
 
   // LoRA config
@@ -56,6 +62,10 @@ export default function StartTraining() {
       setDatasets(res.datasets.filter((d) => d.status === 'completed'))
     }).catch(() => {})
     getArtifacts().then((res) => setCheckpoints(res.checkpoints)).catch(() => {})
+    getBaseModels().then((models) => {
+      setLocalModels(models)
+      if (models.length > 0) setModelSource('local')
+    }).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -112,7 +122,7 @@ export default function StartTraining() {
         : {
             dataset_id: datasetSource === 'dataset' ? datasetId : undefined,
             dataset_path: datasetSource === 'path' ? datasetPath.trim() || undefined : undefined,
-            base_model: baseModel,
+            base_model: modelSource === 'huggingface' && hfModelId.trim() ? hfModelId.trim() : baseModel,
             model_size: modelSize,
             lora_rank: loraRank,
             lora_alpha: loraAlpha,
@@ -144,7 +154,7 @@ export default function StartTraining() {
   return (
     <div style={{ maxWidth: '700px' }}>
       <div className="page-header">
-        <h1>Start Training</h1>
+        <h1>Model Fine-Tuning</h1>
         <p>Configure and launch a fine-tuning run</p>
       </div>
 
@@ -238,8 +248,8 @@ export default function StartTraining() {
         {/* Dataset source — shown in manual mode, or preset mode when no dataset config */}
         {(configMode === 'manual' || !selectedDatasetConfig) && (
         <div style={{ marginBottom: '20px' }}>
-          <label style={{ fontSize: '15px', fontWeight: 500, color: 'var(--text-primary)', marginBottom: '8px' }}>
-            Dataset Source
+          <label style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '8px', display: 'block' }}>
+            Qwen-Fine-Tuning
           </label>
           <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
             <button
@@ -338,25 +348,133 @@ export default function StartTraining() {
         {/* Model config — manual mode only */}
         {configMode === 'manual' && (<>
         {/* Model config */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
-          <div>
-            <label>Base Model</label>
-            <input
-              type="text"
+        <div style={{ marginBottom: '20px' }}>
+          <label>Base Model</label>
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+            <button
+              onClick={() => setModelSource('local')}
+              disabled={submitting}
+              style={{
+                background: modelSource === 'local' ? 'var(--accent-blue)' : 'var(--bg-tertiary)',
+                border: '1px solid ' + (modelSource === 'local' ? 'var(--accent-blue)' : 'var(--border-primary)'),
+                color: modelSource === 'local' ? '#fff' : 'var(--text-secondary)',
+                cursor: 'pointer',
+                fontSize: '13px',
+                padding: '6px 12px',
+                borderRadius: 'var(--radius-sm)',
+              }}
+            >
+              Local Models
+            </button>
+            <button
+              onClick={() => setModelSource('huggingface')}
+              disabled={submitting}
+              style={{
+                background: modelSource === 'huggingface' ? 'var(--accent-blue)' : 'var(--bg-tertiary)',
+                border: '1px solid ' + (modelSource === 'huggingface' ? 'var(--accent-blue)' : 'var(--border-primary)'),
+                color: modelSource === 'huggingface' ? '#fff' : 'var(--text-secondary)',
+                cursor: 'pointer',
+                fontSize: '13px',
+                padding: '6px 12px',
+                borderRadius: 'var(--radius-sm)',
+              }}
+            >
+              HuggingFace
+            </button>
+          </div>
+          {modelSource === 'local' ? (
+            <select
               value={baseModel}
               onChange={(e) => setBaseModel(e.target.value)}
               disabled={submitting}
-            />
-          </div>
-          <div>
-            <label>Model Size</label>
-            <input
-              type="text"
-              value={modelSize}
-              onChange={(e) => setModelSize(e.target.value)}
-              disabled={submitting}
-            />
-          </div>
+            >
+              <option value="">Select a local model...</option>
+              {localModels.map((m) => (
+                <option key={m.path} value={m.path}>{m.label}</option>
+              ))}
+            </select>
+          ) : (
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <input
+                type="text"
+                placeholder="Qwen/Qwen2.5-14B-Instruct"
+                value={hfModelId}
+                onChange={(e) => setHfModelId(e.target.value)}
+                disabled={submitting || downloadingModel}
+                style={{ flex: 1 }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && hfModelId.trim()) {
+                    setBaseModel(hfModelId.trim())
+                  }
+                }}
+              />
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  if (!hfModelId.trim()) return
+                  setDownloadingModel(true)
+                  setDownloadProgress('')
+                  setDownloadPercent(-1)
+                  setError('')
+                  downloadBaseModel(hfModelId.trim(), (msg) => {
+                    if (msg.type === 'log' || msg.type === 'progress') {
+                      setDownloadProgress(msg.data || '')
+                      if (msg.percent !== undefined) setDownloadPercent(msg.percent)
+                    } else if (msg.type === 'done') {
+                      setDownloadingModel(false)
+                      setDownloadProgress('')
+                      setDownloadPercent(-1)
+                      if (msg.path) {
+                        setBaseModel(msg.path)
+                        setModelSource('local')
+                      }
+                      getBaseModels().then((models) => {
+                        setLocalModels(models)
+                      }).catch(() => {})
+                      setHfModelId('')
+                    } else if (msg.type === 'error') {
+                      setDownloadingModel(false)
+                      setDownloadProgress('')
+                      setDownloadPercent(-1)
+                      setError(msg.data || 'Download failed')
+                    }
+                  })
+                }}
+                disabled={submitting || downloadingModel || !hfModelId.trim()}
+                style={{ padding: '6px 16px', fontSize: '13px', whiteSpace: 'nowrap' }}
+              >
+                {downloadingModel ? 'Downloading...' : 'Download'}
+              </button>
+            </div>
+          )}
+          {downloadingModel && downloadProgress && (
+            <div style={{ marginTop: '8px' }}>
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                {downloadProgress}
+              </div>
+              {downloadPercent >= 0 && (
+                <div style={{
+                  height: '6px',
+                  background: 'var(--bg-tertiary)',
+                  borderRadius: '3px',
+                  overflow: 'hidden',
+                }}>
+                  <div style={{
+                    height: '100%',
+                    width: `${downloadPercent}%`,
+                    background: 'var(--accent-blue)',
+                    borderRadius: '3px',
+                    transition: 'width 0.3s ease',
+                  }} />
+                </div>
+              )}
+            </div>
+          )}
+          {modelSource === 'huggingface' && !downloadingModel && (
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+              Enter a HuggingFace repo ID to use directly, or click Download to cache locally.
+            </div>
+          )}
         </div>
 
         {/* LoRA config */}

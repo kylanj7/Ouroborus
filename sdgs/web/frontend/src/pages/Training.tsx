@@ -1,7 +1,8 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Cpu, Plus } from 'lucide-react'
+import { Cpu, Plus, Trash2 } from 'lucide-react'
 import { useTrainingStore } from '../store/trainingStore'
+import { deleteTrainingRun } from '../api/client'
 
 const statusClass: Record<string, string> = {
   pending: 'badge-pending',
@@ -22,10 +23,25 @@ function formatDuration(seconds: number): string {
 export default function Training() {
   const { trainingRuns, total, page, loading, fetchTrainingRuns } = useTrainingStore()
   const navigate = useNavigate()
+  const [deleting, setDeleting] = useState<number | null>(null)
 
   useEffect(() => {
     fetchTrainingRuns()
   }, [])
+
+  const handleDelete = async (e: React.MouseEvent, runId: number) => {
+    e.stopPropagation()
+    if (!confirm('Delete this training run and its evaluations?')) return
+    setDeleting(runId)
+    try {
+      await deleteTrainingRun(runId)
+      fetchTrainingRuns(page)
+    } catch (err) {
+      alert(String(err))
+    } finally {
+      setDeleting(null)
+    }
+  }
 
   const totalPages = Math.ceil(total / 20)
 
@@ -87,8 +103,21 @@ export default function Training() {
                       {run.duration_seconds > 0 && <span>{formatDuration(run.duration_seconds)}</span>}
                     </div>
                   </div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', textAlign: 'right', flexShrink: 0 }}>
-                    {run.created_at && new Date(run.created_at).toLocaleDateString()}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                      {run.created_at && new Date(run.created_at).toLocaleDateString()}
+                    </span>
+                    {run.status !== 'running' && run.status !== 'pending' && (
+                      <button
+                        className="btn btn-danger"
+                        onClick={(e) => handleDelete(e, run.id)}
+                        disabled={deleting === run.id}
+                        title="Delete run"
+                        style={{ padding: '4px 8px' }}
+                      >
+                        {deleting === run.id ? <span className="spinner" style={{ width: 14, height: 14 }} /> : <Trash2 size={14} />}
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>

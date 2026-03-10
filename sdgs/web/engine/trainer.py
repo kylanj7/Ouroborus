@@ -18,6 +18,7 @@ Supports:
 """
 
 import json
+import os
 import threading
 import yaml
 from datetime import datetime
@@ -623,6 +624,28 @@ class QwenTrainer:
         return counts
 
     # ------------------------------------------------------------------
+    # wandb integration
+    # ------------------------------------------------------------------
+
+    def _resolve_report_to(self) -> str:
+        """Return 'wandb' or 'none' based on training config."""
+        if not self.training_config.get("wandb_enabled", False):
+            return "none"
+        template = self.training_config.get("wandb_project_template", "ouroborus-training")
+        model_name = self.model_config.get("name", "model").lower().replace(" ", "-").replace(".", "")
+        dataset_name = (
+            self.dataset_config.get("name", "dataset").lower().replace(" ", "-")
+            if self.dataset_config else Path(self.dataset_path).stem
+        )
+        project = template.format(
+            model_name=model_name,
+            dataset_name=dataset_name,
+            model_size=self.model_config.get("size", "").lower(),
+        )
+        os.environ["WANDB_PROJECT"] = project
+        return "wandb"
+
+    # ------------------------------------------------------------------
     # train
     # ------------------------------------------------------------------
 
@@ -673,7 +696,7 @@ class QwenTrainer:
             eval_strategy=eval_strategy,
             eval_steps=eval_steps,
             push_to_hub=tcfg.get("push_to_hub", False),
-            report_to="none",
+            report_to=self._resolve_report_to(),
         )
 
         callbacks = []

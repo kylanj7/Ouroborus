@@ -3,6 +3,7 @@ import math
 import re
 from collections import defaultdict
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..db.models import Dataset, Paper, QAPair
@@ -45,7 +46,6 @@ def build_galaxy_data(db: Session, user_id: int) -> dict:
         .all()
     )
     papers = db.query(Paper).filter(Paper.user_id == user_id).all()
-    qa_pairs = db.query(QAPair).filter(QAPair.user_id == user_id).all()
 
     if not datasets and not papers:
         return {"nodes": [], "links": [], "clusters": []}
@@ -56,19 +56,59 @@ def build_galaxy_data(db: Session, user_id: int) -> dict:
         if p.dataset_id:
             papers_by_dataset[p.dataset_id].append(p)
 
-    # Group QA pairs by paper and by dataset (dataset-only = no paper link)
-    qa_by_paper: dict[int, list] = defaultdict(list)
-    qa_by_dataset_only: dict[int, list] = defaultdict(list)
+    # Get QA counts via aggregation (not loading all rows)
     qa_count_by_paper: dict[int, int] = defaultdict(int)
     qa_count_by_dataset: dict[int, int] = defaultdict(int)
-    for qa in qa_pairs:
-        if qa.paper_id:
-            qa_by_paper[qa.paper_id].append(qa)
-            qa_count_by_paper[qa.paper_id] += 1
-        elif qa.dataset_id:
-            qa_by_dataset_only[qa.dataset_id].append(qa)
-        if qa.dataset_id:
-            qa_count_by_dataset[qa.dataset_id] += 1
+    for paper_id, cnt in (
+        db.query(QAPair.paper_id, func.count())
+        .filter(QAPair.user_id == user_id, QAPair.paper_id.isnot(None))
+        .group_by(QAPair.paper_id)
+        .all()
+    ):
+        qa_count_by_paper[paper_id] = cnt
+    for dataset_id, cnt in (
+        db.query(QAPair.dataset_id, func.count())
+        .filter(QAPair.user_id == user_id, QAPair.dataset_id.isnot(None))
+        .group_by(QAPair.dataset_id)
+        .all()
+    ):
+        qa_count_by_dataset[dataset_id] = cnt
+
+    # Load a limited sample of QA pairs for graph nodes (not all)
+    MAX_QA_PER_PARENT = 25
+    paper_ids = [p.id for p in papers]
+    dataset_ids = [ds.id for ds in datasets]
+
+    qa_by_paper: dict[int, list] = defaultdict(list)
+    qa_by_dataset_only: dict[int, list] = defaultdict(list)
+
+    if paper_ids:
+        # Load sampled QA pairs for papers
+        sampled_qa = (
+            db.query(QAPair)
+            .filter(QAPair.user_id == user_id, QAPair.paper_id.in_(paper_ids))
+            .limit(MAX_QA_PER_PARENT * len(paper_ids))
+            .all()
+        )
+        for qa in sampled_qa:
+            if len(qa_by_paper[qa.paper_id]) < MAX_QA_PER_PARENT:
+                qa_by_paper[qa.paper_id].append(qa)
+
+    if dataset_ids:
+        # Load sampled QA pairs for datasets (paper-less ones)
+        sampled_ds_qa = (
+            db.query(QAPair)
+            .filter(
+                QAPair.user_id == user_id,
+                QAPair.paper_id.is_(None),
+                QAPair.dataset_id.in_(dataset_ids),
+            )
+            .limit(MAX_QA_PER_PARENT * len(dataset_ids))
+            .all()
+        )
+        for qa in sampled_ds_qa:
+            if len(qa_by_dataset_only[qa.dataset_id]) < MAX_QA_PER_PARENT:
+                qa_by_dataset_only[qa.dataset_id].append(qa)
 
     # Extract keywords and build paper keyword map
     paper_keywords: dict[int, list[str]] = {}
@@ -89,6 +129,7 @@ def build_galaxy_data(db: Session, user_id: int) -> dict:
             "label": ds.topic[:30] if ds.topic else f"Dataset {ds.id}",
             "color": color,
             "paper_count": len(ds_papers),
+            "qa_pair_count": qa_count_by_dataset[ds.id],
         })
         dataset_cluster[ds.id] = i
         for p in ds_papers:
@@ -153,18 +194,15 @@ def build_galaxy_data(db: Session, user_id: int) -> dict:
             "qa_pair_count": qa_count,
         })
 
-    # Sample QA nodes + links — up to 2 per paper/dataset, capped at 150 total
-    qa_sample_links = []
-    qa_nodes_added = 0
-    MAX_QA_NODES = 150
+    # QA nodes + links — capped per paper/dataset to keep graph manageable
+    MAX_QA_PER_PARENT = 25
+    qa_links = []
 
     # QAs linked through papers
     for p in papers:
-        if qa_nodes_added >= MAX_QA_NODES:
-            break
         cid = paper_cluster.get(p.id, 0)
         color = cluster_infos[cid]["color"] if cid < len(cluster_infos) else "#6ee7d8"
-        for qa in qa_by_paper[p.id][:2]:
+        for qa in qa_by_paper[p.id][:MAX_QA_PER_PARENT]:
             nodes.append({
                 "id": f"qa-{qa.id}",
                 "type": "qa",
@@ -176,21 +214,18 @@ def build_galaxy_data(db: Session, user_id: int) -> dict:
                 "answer_text": qa.answer_text or (qa.output or "")[:200],
                 "is_valid": qa.is_valid,
             })
-            qa_sample_links.append({
+            qa_links.append({
                 "source": f"paper-{p.id}",
                 "target": f"qa-{qa.id}",
                 "weight": 0.3,
                 "type": "paper_qa",
             })
-            qa_nodes_added += 1
 
     # QAs linked directly to datasets (no paper, e.g. HF imports)
     for ds in datasets:
-        if qa_nodes_added >= MAX_QA_NODES:
-            break
         cid = dataset_cluster.get(ds.id, 0)
         color = cluster_infos[cid]["color"] if cid < len(cluster_infos) else "#6ee7d8"
-        for qa in qa_by_dataset_only[ds.id][:4]:
+        for qa in qa_by_dataset_only[ds.id][:MAX_QA_PER_PARENT]:
             nodes.append({
                 "id": f"qa-{qa.id}",
                 "type": "qa",
@@ -202,16 +237,15 @@ def build_galaxy_data(db: Session, user_id: int) -> dict:
                 "answer_text": qa.answer_text or (qa.output or "")[:200],
                 "is_valid": qa.is_valid,
             })
-            qa_sample_links.append({
+            qa_links.append({
                 "source": f"dataset-{ds.id}",
                 "target": f"qa-{qa.id}",
                 "weight": 0.2,
                 "type": "dataset_qa",
             })
-            qa_nodes_added += 1
 
     # Build links
-    links = list(qa_sample_links)
+    links = list(qa_links)
 
     # Dataset -> Paper links
     for p in papers:
@@ -223,22 +257,29 @@ def build_galaxy_data(db: Session, user_id: int) -> dict:
                 "type": "dataset_paper",
             })
 
-    # Shared keyword links between papers (cap at 200 papers to avoid O(n²) blowup)
-    paper_list = list(papers[:200])
-    for i in range(len(paper_list)):
-        for j in range(i + 1, len(paper_list)):
-            p1 = paper_list[i]
-            p2 = paper_list[j]
-            kw1 = set(paper_keywords.get(p1.id, []))
-            kw2 = set(paper_keywords.get(p2.id, []))
-            overlap = len(kw1 & kw2)
-            if overlap >= 2:
-                links.append({
-                    "source": f"paper-{p1.id}",
-                    "target": f"paper-{p2.id}",
-                    "weight": overlap / 10,
-                    "type": "keyword",
-                })
+    # Shared keyword links between papers — inverted index approach (O(n*k) not O(n^2))
+    keyword_to_papers: dict[str, list[int]] = defaultdict(list)
+    for pid, kws in paper_keywords.items():
+        for kw in kws:
+            keyword_to_papers[kw].append(pid)
+
+    pair_overlap: dict[tuple[int, int], int] = defaultdict(int)
+    for _kw, pids in keyword_to_papers.items():
+        if len(pids) > 50:
+            continue  # skip overly common keywords
+        for i in range(len(pids)):
+            for j in range(i + 1, len(pids)):
+                key = (min(pids[i], pids[j]), max(pids[i], pids[j]))
+                pair_overlap[key] += 1
+
+    for (p1_id, p2_id), overlap in pair_overlap.items():
+        if overlap >= 2:
+            links.append({
+                "source": f"paper-{p1_id}",
+                "target": f"paper-{p2_id}",
+                "weight": overlap / 10,
+                "type": "keyword",
+            })
 
     return {
         "nodes": nodes,

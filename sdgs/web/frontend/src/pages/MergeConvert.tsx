@@ -172,7 +172,7 @@ export default function MergeConvert() {
               Conversion Complete
             </div>
             <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-              GGUF saved to: <code style={{ color: 'var(--accent-cyan)' }}>{ggufPath}</code>
+              GGUF saved to: <code style={{ color: 'var(--accent-blue)' }}>{ggufPath}</code>
             </div>
           </div>
           <button

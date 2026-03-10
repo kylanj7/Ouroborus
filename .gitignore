@@ -18,3 +18,4 @@ sdgs_web.db
 loop_state.db
 outputs/
 models/
+.jwt_secret

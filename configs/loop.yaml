@@ -39,3 +39,8 @@ feedback:
     factual_accuracy: 0.5
     completeness: 0.3
     technical_precision: 0.2
+
+wandb:
+  enabled: false
+  project: "ouroborus-evolution"
+  entity: ""

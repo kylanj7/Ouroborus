@@ -97,5 +97,5 @@ def download_paper_pdf(
     return FileResponse(
         path=str(pdf_file),
         media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="{safe_title}.pdf"'},
+        headers={"Content-Disposition": f'attachment; filename="{safe_title}.pdf"'},
     )

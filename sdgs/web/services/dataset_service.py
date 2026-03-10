@@ -5,17 +5,20 @@ pipeline: calculate papers needed → scrape → auto-filter → store results.
 """
 import json
 import math
-import os
 import re
 import time
 from pathlib import Path
 
 import yaml
 
+import logging
+
 from sdgs.scrape import run_scrape, generate_qa_for_paper
 from sdgs.filter import filter_dataset
 
-from ..config import DATA_DIR
+from ..config import CONFIGS_DIR, DATA_DIR
+
+log = logging.getLogger(__name__)
 
 
 def run_dataset_pipeline(
@@ -44,11 +47,9 @@ def run_dataset_pipeline(
     output_path = str(DATA_DIR / f"{safe_topic}_{dataset_id}.jsonl")
     filtered_path = str(DATA_DIR / f"{safe_topic}_{dataset_id}_filtered.jsonl")
 
-    # 2b. Set Semantic Scholar API key if available
-    if s2_api_key:
-        os.environ["S2_API_KEY"] = s2_api_key
-
     # 3. Run scrape (papers + Q&A generation)
+    log.info("[dataset:%d] Starting scrape pipeline: topic=%r, provider=%s, model=%s, max_papers=%d",
+             dataset_id, topic, provider, model, max_papers)
     run_scrape(
         topic=topic,
         provider=provider,
@@ -63,15 +64,18 @@ def run_dataset_pipeline(
         temperature=temperature,
         max_tokens=max_tokens,
         cancel_event=cancel_event,
+        s2_api_key=s2_api_key,
     )
 
     # 4. Auto-filter the output
-    task_config_path = Path(__file__).parent.parent.parent / "configs" / "tasks" / "paper_qa.yaml"
+    task_config_path = CONFIGS_DIR / "tasks" / "paper_qa.yaml"
+    log.info("[dataset:%d] Loading task config from %s", dataset_id, task_config_path)
     with open(task_config_path) as f:
         task_validation = yaml.safe_load(f).get("validation", {})
 
     raw_path = Path(output_path)
     if raw_path.exists() and raw_path.stat().st_size > 0:
+        log.info("[dataset:%d] Filtering output: %s -> %s", dataset_id, output_path, filtered_path)
         filter_dataset(
             output_path,
             output_file=filtered_path,
@@ -80,12 +84,14 @@ def run_dataset_pipeline(
             validation_rules=task_validation,
         )
     else:
+        log.warning("[dataset:%d] No raw output to filter (file missing or empty): %s", dataset_id, output_path)
         filtered_path = output_path
 
     # 5. Generate citations metadata file
     citations_path = str(DATA_DIR / f"{safe_topic}_{dataset_id}_citations.json")
     _write_citations_file(output_path, filtered_path, citations_path, topic)
 
+    log.info("[dataset:%d] Pipeline complete: output=%s, filtered=%s", dataset_id, output_path, filtered_path)
     return {
         "output_path": output_path,
         "filtered_path": filtered_path,
@@ -300,7 +306,8 @@ def run_from_papers_pipeline(
     register_job_client(dataset_id, client)
 
     # Load task config
-    task_config_path = Path(__file__).parent.parent.parent.parent / "configs" / "tasks" / "paper_qa.yaml"
+    task_config_path = CONFIGS_DIR / "tasks" / "paper_qa.yaml"
+    log.info("[dataset:%d] Loading task config from %s", dataset_id, task_config_path)
     import yaml
     with open(task_config_path) as f:
         task_config = yaml.safe_load(f)

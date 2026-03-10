@@ -15,6 +15,17 @@ from .db.database import init_db
 from .routers.pulse import broadcast_consumer
 from .services.job_runner import shutdown_runner
 
+# Configure logging for the entire sdgs package
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)-8s [%(name)s] %(message)s",
+    datefmt="%H:%M:%S",
+)
+# Quiet noisy libraries
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+
 log = logging.getLogger(__name__)
 
 OLLAMA_BASE_URL = "http://localhost:11434"
@@ -41,17 +52,30 @@ def _unload_ollama_models() -> None:
 
 
 def _reset_stale_jobs() -> None:
-    """Reset datasets stuck in running/pending from a previous server session."""
+    """Reset datasets and training runs stuck in running/pending from a previous server session."""
     from .db.database import SessionLocal
-    from .db.models import Dataset
+    from .db.models import Dataset, TrainingRun, EvaluationRun
 
     db = SessionLocal()
     try:
-        stale = db.query(Dataset).filter(Dataset.status.in_(["running", "pending"])).all()
-        for ds in stale:
+        stale_ds = db.query(Dataset).filter(Dataset.status.in_(["running", "pending"])).all()
+        for ds in stale_ds:
             log.info("Resetting stale dataset %d (%s) from '%s' to 'failed'", ds.id, ds.topic, ds.status)
             ds.status = "failed"
-        if stale:
+
+        stale_tr = db.query(TrainingRun).filter(TrainingRun.status.in_(["running", "pending"])).all()
+        for tr in stale_tr:
+            log.info("Resetting stale training run %d (%s) from '%s' to 'failed'", tr.id, tr.run_name, tr.status)
+            tr.status = "failed"
+            tr.error_message = "Server shutdown during training"
+
+        stale_ev = db.query(EvaluationRun).filter(EvaluationRun.status.in_(["running", "pending"])).all()
+        for ev in stale_ev:
+            log.info("Resetting stale evaluation %d (%s) from '%s' to 'failed'", ev.id, ev.run_name, ev.status)
+            ev.status = "failed"
+            ev.error_message = "Server shutdown during evaluation"
+
+        if stale_ds or stale_tr or stale_ev:
             db.commit()
     finally:
         db.close()
@@ -71,8 +95,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="SDGS Web",
-    description="Synthetic Dataset Generation Suite — Web Interface",
+    title="Ouroboros",
+    description="Ouroboros — AI Training Suite",
     version="0.2.0",
     lifespan=lifespan,
 )

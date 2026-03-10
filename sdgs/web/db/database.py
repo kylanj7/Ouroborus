@@ -4,7 +4,10 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 
 from ..config import DATABASE_URL
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"check_same_thread": False},
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -14,6 +17,7 @@ def init_db():
     from . import models  # noqa: F401
     Base.metadata.create_all(bind=engine)
     _migrate(engine)
+    _enable_wal(engine)
 
 
 def _migrate(eng):
@@ -34,6 +38,15 @@ def _migrate(eng):
         if "correction_json" not in columns:
             with eng.begin() as conn:
                 conn.execute(text("ALTER TABLE evaluation_runs ADD COLUMN correction_json JSON"))
+
+
+def _enable_wal(eng):
+    """Enable WAL mode and tuning pragmas for SQLite concurrency."""
+    with eng.connect() as conn:
+        conn.execute(text("PRAGMA journal_mode=WAL"))
+        conn.execute(text("PRAGMA synchronous=NORMAL"))
+        conn.execute(text("PRAGMA cache_size=-64000"))  # 64MB cache
+        conn.execute(text("PRAGMA busy_timeout=5000"))
 
 
 def get_db():

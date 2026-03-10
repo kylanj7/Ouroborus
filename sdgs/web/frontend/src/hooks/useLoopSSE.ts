@@ -45,7 +45,10 @@ export function useLoopSSE(loopId: string | null) {
       (msg: LoopSSEMessage) => {
         switch (msg.type) {
           case 'log':
-            setLogs(prev => [...prev, msg.data ?? ''])
+            setLogs(prev => {
+              const next = [...prev, msg.data ?? '']
+              return next.length > 2000 ? next.slice(-1500) : next
+            })
             break
           case 'status':
             setStatus(msg.data ?? null)
@@ -71,7 +74,10 @@ export function useLoopSSE(loopId: string | null) {
             setConfig(msg.data as unknown as Record<string, unknown> ?? null)
             break
           case 'error':
-            setLogs(prev => [...prev, `ERROR: ${msg.data ?? 'Unknown error'}`])
+            setLogs(prev => {
+              const next = [...prev, `ERROR: ${msg.data ?? 'Unknown error'}`]
+              return next.length > 2000 ? next.slice(-1500) : next
+            })
             break
           case 'done':
             setStopReason(msg.stop_reason ?? null)

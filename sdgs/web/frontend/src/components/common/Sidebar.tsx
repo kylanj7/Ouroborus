@@ -30,25 +30,45 @@ export default function Sidebar() {
       flexDirection: 'column',
       zIndex: 100,
     }}>
+      {/* Brand */}
       <div style={{
         padding: '20px',
         borderBottom: '1px solid var(--border-subtle)',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '10px',
       }}>
-        <h1 style={{
-          fontSize: '18px',
-          fontWeight: 700,
-          background: 'linear-gradient(135deg, var(--accent-blue), var(--accent-cyan))',
-          WebkitBackgroundClip: 'text',
-          WebkitTextFillColor: 'transparent',
+        <div style={{
+          width: '32px',
+          height: '32px',
+          borderRadius: '6px',
+          background: 'var(--accent-primary)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontWeight: 800,
+          fontSize: '16px',
+          color: '#fff',
+          flexShrink: 0,
         }}>
-          SDGS Web
-        </h1>
-        <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-          Synthetic Dataset Generation
-        </p>
+          O
+        </div>
+        <div>
+          <h1 style={{
+            fontSize: '16px',
+            fontWeight: 600,
+            color: 'var(--text-primary)',
+            letterSpacing: '0.3px',
+          }}>
+            Ouroboros
+          </h1>
+          <p style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '1px' }}>
+            AI Training Suite
+          </p>
+        </div>
       </div>
 
-      <nav style={{ flex: 1, padding: '12px' }}>
+      <nav style={{ flex: 1, padding: '8px', overflowY: 'auto' }}>
         {navItems.map(({ to, icon: Icon, label }) => (
           <NavLink
             key={to}
@@ -58,17 +78,19 @@ export default function Sidebar() {
               display: 'flex',
               alignItems: 'center',
               gap: '10px',
-              padding: '10px 12px',
+              padding: '8px 12px',
               borderRadius: 'var(--radius-sm)',
-              color: isActive ? 'var(--accent-blue)' : 'var(--text-secondary)',
-              background: isActive ? 'rgba(126, 184, 255, 0.1)' : 'transparent',
+              color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
+              background: isActive ? 'var(--bg-tertiary)' : 'transparent',
+              borderLeft: isActive ? '2px solid var(--accent-primary)' : '2px solid transparent',
               textDecoration: 'none',
               fontSize: '14px',
-              marginBottom: '2px',
+              fontWeight: isActive ? 500 : 400,
+              marginBottom: '1px',
               transition: 'all 0.15s',
             })}
           >
-            <Icon size={18} />
+            <Icon size={16} />
             {label}
           </NavLink>
         ))}
@@ -83,7 +105,7 @@ export default function Sidebar() {
       }}>
         <div>
           <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{username}</div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>v0.2.0</div>
+          <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>v0.3.0</div>
         </div>
         <button
           onClick={logout}
@@ -94,6 +116,7 @@ export default function Sidebar() {
             color: 'var(--text-muted)',
             cursor: 'pointer',
             padding: '4px',
+            transition: 'color 0.15s',
           }}
         >
           <LogOut size={16} />

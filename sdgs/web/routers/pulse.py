@@ -69,13 +69,21 @@ async def pulse_websocket(ws: WebSocket, run_type: str, run_id: int):
 
 
 async def broadcast_consumer() -> None:
-    """Async task that polls the broadcast queue and forwards to WebSocket clients."""
+    """Async task that awaits broadcast queue items and forwards to WebSocket clients."""
+    import queue as _queue
+
     bq = get_broadcast_queue()
+    loop = asyncio.get_running_loop()
     while True:
         try:
-            msg: BroadcastMessage = bq.get_nowait()
+            msg: BroadcastMessage = await loop.run_in_executor(
+                None, bq.get, True, 1.0
+            )
             key = f"{msg.broadcast_type.value}:{msg.entity_id}"
             await pulse_manager.broadcast(key, msg.message)
+        except _queue.Empty:
+            continue
+        except asyncio.CancelledError:
+            return
         except Exception:
-            # Queue empty or other transient error — throttle
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.1)

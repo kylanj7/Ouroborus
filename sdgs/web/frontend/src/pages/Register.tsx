@@ -39,35 +39,52 @@ export default function Register() {
       justifyContent: 'center',
       minHeight: '100vh',
       padding: '20px',
+      background: 'var(--bg-primary)',
     }}>
-      <div className="card" style={{ width: '100%', maxWidth: '400px' }}>
-        <h1 style={{
-          fontSize: '24px',
-          fontWeight: 700,
-          marginBottom: '4px',
-          background: 'linear-gradient(135deg, var(--accent-blue), var(--accent-cyan))',
-          WebkitBackgroundClip: 'text',
-          WebkitTextFillColor: 'transparent',
-          textAlign: 'center',
-        }}>
-          Create Account
-        </h1>
-        <p style={{
-          color: 'var(--text-muted)',
-          fontSize: '13px',
-          textAlign: 'center',
-          marginBottom: '24px',
-        }}>
-          Join SDGS to create synthetic datasets
-        </p>
+      <div className="card" style={{
+        width: '100%',
+        maxWidth: '380px',
+        padding: '32px',
+      }}>
+        <div style={{ textAlign: 'center', marginBottom: '28px' }}>
+          <div style={{
+            width: '48px',
+            height: '48px',
+            borderRadius: '8px',
+            background: 'var(--accent-primary)',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontWeight: 800,
+            fontSize: '24px',
+            color: '#fff',
+            marginBottom: '16px',
+          }}>
+            O
+          </div>
+          <h1 style={{
+            fontSize: '22px',
+            fontWeight: 600,
+            color: 'var(--text-primary)',
+          }}>
+            Create Account
+          </h1>
+          <p style={{
+            color: 'var(--text-muted)',
+            fontSize: '13px',
+            marginTop: '4px',
+          }}>
+            Join Ouroboros AI Training Suite
+          </p>
+        </div>
 
         {error && (
           <div style={{
-            background: 'rgba(255, 126, 179, 0.1)',
-            border: '1px solid rgba(255, 126, 179, 0.3)',
+            background: 'rgba(248, 81, 73, 0.1)',
+            border: '1px solid rgba(248, 81, 73, 0.3)',
             borderRadius: 'var(--radius-sm)',
             padding: '8px 12px',
-            color: 'var(--accent-pink)',
+            color: 'var(--status-failed)',
             fontSize: '13px',
             marginBottom: '16px',
           }}>

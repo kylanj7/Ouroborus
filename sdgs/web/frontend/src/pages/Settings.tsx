@@ -141,7 +141,7 @@ export default function Settings() {
           border: '1px solid rgba(110, 231, 216, 0.3)',
           borderRadius: 'var(--radius-sm)',
           padding: '8px 12px',
-          color: 'var(--accent-cyan)',
+          color: 'var(--accent-blue)',
           fontSize: '13px',
           marginBottom: '16px',
         }}>

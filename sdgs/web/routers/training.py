@@ -7,6 +7,7 @@ import threading
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy.orm import Session
 
 from ..auth import decrypt_value
@@ -160,6 +161,136 @@ def _load_yaml_configs(req: StartTrainingRequest):
 
 
 # -------------------------------------------------------------------------
+# GET /base-models — List locally cached base models
+# -------------------------------------------------------------------------
+
+@router.get("/base-models", response_model=list[ArtifactEntry])
+def list_base_models(
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    models_dir = BASE_DIR / "models" / "base"
+    models_dir.mkdir(parents=True, exist_ok=True)
+    results: list[ArtifactEntry] = []
+    for entry in sorted(models_dir.iterdir()):
+        if not entry.is_dir():
+            continue
+        # A valid HF model dir contains config.json
+        if (entry / "config.json").exists():
+            results.append(ArtifactEntry(path=str(entry), label=entry.name))
+    return results
+
+
+# -------------------------------------------------------------------------
+# POST /download-model — Download a HuggingFace model to models/base/
+# -------------------------------------------------------------------------
+
+@router.get("/download-model")
+async def download_base_model(
+    repo_id: str = Query(...),
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Stream model download progress via SSE."""
+    import asyncio as _asyncio
+    from concurrent.futures import ThreadPoolExecutor
+    from fastapi.responses import StreamingResponse
+
+    models_dir = BASE_DIR / "models" / "base"
+    models_dir.mkdir(parents=True, exist_ok=True)
+
+    local_name = repo_id.replace("/", "--")
+    local_dir = models_dir / local_name
+
+    async def event_stream():
+        def _sse(data: dict) -> str:
+            import json as _json
+            return f"data: {_json.dumps(data)}\n\n"
+
+        if local_dir.exists() and (local_dir / "config.json").exists():
+            yield _sse({"type": "done", "path": str(local_dir), "label": local_name, "status": "already_exists"})
+            return
+
+        yield _sse({"type": "log", "data": f"Starting download of {repo_id}..."})
+
+        # Get model info for total size
+        total_bytes = 0
+        try:
+            from huggingface_hub import HfApi
+            api = HfApi()
+            info = api.model_info(repo_id, files_metadata=True)
+            for sibling in info.siblings or []:
+                name = sibling.rfilename or ""
+                if name.endswith(".gguf") or name.endswith(".bin"):
+                    continue
+                total_bytes += sibling.size or 0
+            if total_bytes > 0:
+                total_gb = total_bytes / (1024 ** 3)
+                yield _sse({"type": "log", "data": f"Total size: {total_gb:.1f} GB"})
+        except Exception:
+            yield _sse({"type": "log", "data": "Calculating size..."})
+
+        # Run download in thread
+        result = {"error": None, "done": False}
+
+        def _do_download():
+            try:
+                from huggingface_hub import snapshot_download
+                snapshot_download(
+                    repo_id=repo_id,
+                    local_dir=str(local_dir),
+                    ignore_patterns=["*.gguf", "*.bin"],
+                )
+            except Exception as e:
+                result["error"] = str(e)
+            finally:
+                result["done"] = True
+
+        executor = ThreadPoolExecutor(max_workers=1)
+        executor.submit(_do_download)
+
+        # Poll directory size for progress
+        def _dir_size(p: Path) -> int:
+            total = 0
+            try:
+                for f in p.rglob("*"):
+                    if f.is_file():
+                        total += f.stat().st_size
+            except Exception:
+                pass
+            return total
+
+        last_report = 0
+        while not result["done"]:
+            await _asyncio.sleep(2)
+            current = _dir_size(local_dir)
+            if total_bytes > 0:
+                pct = min(100, current * 100 // total_bytes)
+                current_gb = current / (1024 ** 3)
+                total_gb = total_bytes / (1024 ** 3)
+                if current != last_report:
+                    yield _sse({"type": "progress", "data": f"{current_gb:.1f} / {total_gb:.1f} GB ({pct}%)", "percent": pct})
+                    last_report = current
+            else:
+                current_gb = current / (1024 ** 3)
+                if current != last_report:
+                    yield _sse({"type": "progress", "data": f"Downloaded {current_gb:.1f} GB...", "percent": -1})
+                    last_report = current
+
+        executor.shutdown(wait=False)
+
+        if result["error"]:
+            yield _sse({"type": "error", "data": result["error"]})
+        else:
+            yield _sse({"type": "log", "data": "Download complete."})
+            yield _sse({"type": "done", "path": str(local_dir), "label": local_name, "status": "completed"})
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    )
+
+
+# -------------------------------------------------------------------------
 # GET /configs/{config_type} — List available YAML configs
 # -------------------------------------------------------------------------
 
@@ -201,56 +332,63 @@ def list_artifacts(
     seen_adapter_paths: set[str] = set()
 
     outputs_dir = BASE_DIR / "outputs"
-    gguf_dir = BASE_DIR / "models" / "gguf"
+    models_dir = BASE_DIR / "models"
+    gguf_dir = models_dir / "gguf"
+
+    # Ensure canonical directories exist
+    gguf_dir.mkdir(parents=True, exist_ok=True)
+    outputs_dir.mkdir(parents=True, exist_ok=True)
 
     # Scan outputs/ for adapters, checkpoints, merged models
-    if outputs_dir.is_dir():
-        for run_dir in sorted(outputs_dir.iterdir()):
-            if not run_dir.is_dir():
-                continue
-            run_name = run_dir.name
+    for run_dir in sorted(outputs_dir.iterdir()):
+        if not run_dir.is_dir():
+            continue
+        run_name = run_dir.name
 
-            # Adapters: subdir containing final_adapter/
-            final_adapter = run_dir / "final_adapter"
-            if final_adapter.is_dir():
-                path = str(final_adapter)
-                adapters.append(ArtifactEntry(path=path, label=run_name))
-                seen_adapter_paths.add(path)
+        # Adapters: subdir containing final_adapter/
+        final_adapter = run_dir / "final_adapter"
+        if final_adapter.is_dir():
+            path = str(final_adapter)
+            adapters.append(ArtifactEntry(path=path, label=run_name))
+            seen_adapter_paths.add(path)
 
-            # Adapters: subdir with adapter_config.json directly
-            if (run_dir / "adapter_config.json").exists() and str(run_dir) not in seen_adapter_paths:
-                path = str(run_dir)
-                adapters.append(ArtifactEntry(path=path, label=run_name))
-                seen_adapter_paths.add(path)
+        # Adapters: subdir with adapter_config.json directly
+        if (run_dir / "adapter_config.json").exists() and str(run_dir) not in seen_adapter_paths:
+            path = str(run_dir)
+            adapters.append(ArtifactEntry(path=path, label=run_name))
+            seen_adapter_paths.add(path)
 
-            # Checkpoints: checkpoint-* subdirs
-            for ckpt in sorted(run_dir.glob("checkpoint-*")):
-                if ckpt.is_dir():
-                    try:
-                        ckpt_num = ckpt.name.split("-", 1)[1]
-                    except IndexError:
-                        ckpt_num = ckpt.name
-                    checkpoints.append(ArtifactEntry(
-                        path=str(ckpt),
-                        label=f"{run_name}/checkpoint-{ckpt_num}",
-                    ))
-
-            # Merged models: subdir containing a config.json but not adapter_config.json
-            # (merged models are full model dirs, not LoRA adapters)
-            if (run_dir / "merged").is_dir():
-                merged_models.append(ArtifactEntry(
-                    path=str(run_dir / "merged"),
-                    label=f"{run_name}/merged",
+        # Checkpoints: checkpoint-* subdirs
+        for ckpt in sorted(run_dir.glob("checkpoint-*")):
+            if ckpt.is_dir():
+                try:
+                    ckpt_num = ckpt.name.split("-", 1)[1]
+                except IndexError:
+                    ckpt_num = ckpt.name
+                checkpoints.append(ArtifactEntry(
+                    path=str(ckpt),
+                    label=f"{run_name}/checkpoint-{ckpt_num}",
                 ))
 
-    # Scan models/gguf/ for GGUF files
-    if gguf_dir.is_dir():
-        for gguf_file in sorted(gguf_dir.glob("*.gguf")):
-            if gguf_file.is_file():
-                gguf_files.append(ArtifactEntry(
-                    path=str(gguf_file),
-                    label=gguf_file.name,
-                ))
+        # Merged models
+        if (run_dir / "merged").is_dir():
+            merged_models.append(ArtifactEntry(
+                path=str(run_dir / "merged"),
+                label=f"{run_name}/merged",
+            ))
+
+    # Scan models/ recursively for GGUF files (covers models/gguf/ and any
+    # other subdirectory the user organises weights into)
+    for gguf_file in sorted(models_dir.rglob("*.gguf")):
+        if gguf_file.is_file():
+            try:
+                rel = gguf_file.relative_to(models_dir)
+            except ValueError:
+                rel = gguf_file.name
+            gguf_files.append(ArtifactEntry(
+                path=str(gguf_file),
+                label=str(rel),
+            ))
 
     # Fallback: adapters from DB training runs not found on disk
     db_runs = db.query(TrainingRun).filter(
@@ -410,6 +548,32 @@ def cancel_training(
 
     cancelled = cancel_training_job(run_id, model_class="TrainingRun")
     return {"cancelled": cancelled}
+
+
+# -------------------------------------------------------------------------
+# DELETE /{run_id} — Delete training run
+# -------------------------------------------------------------------------
+
+@router.delete("/{run_id}")
+def delete_training_run(
+    run_id: int,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    run = db.query(TrainingRun).filter(
+        TrainingRun.id == run_id,
+        TrainingRun.user_id == current_user.id,
+    ).first()
+    if not run:
+        raise HTTPException(404, "Training run not found")
+    if run.status in ("running", "pending"):
+        raise HTTPException(400, "Cannot delete a running or pending training run. Cancel it first.")
+
+    # Delete associated evaluation runs first
+    db.query(EvaluationRun).filter(EvaluationRun.training_run_id == run_id).delete()
+    db.delete(run)
+    db.commit()
+    return {"deleted": True}
 
 
 # -------------------------------------------------------------------------

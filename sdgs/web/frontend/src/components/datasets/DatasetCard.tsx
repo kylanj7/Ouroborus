@@ -25,7 +25,7 @@ export default function DatasetCard({ dataset, onClick }: Props) {
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
-          <Database size={20} style={{ color: 'var(--accent-cyan)', flexShrink: 0 }} />
+          <Database size={20} style={{ color: 'var(--accent-blue)', flexShrink: 0 }} />
           <div>
             <div style={{ fontWeight: 500, marginBottom: '4px' }}>{dataset.topic}</div>
             <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>

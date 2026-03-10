@@ -258,7 +258,7 @@ export default function TrainingDetail() {
       {currentRun.adapter_path && (
         <div className="card" style={{ padding: '12px 16px' }}>
           <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-            Adapter saved to: <code style={{ color: 'var(--accent-cyan)' }}>{currentRun.adapter_path}</code>
+            Adapter saved to: <code style={{ color: 'var(--accent-blue)' }}>{currentRun.adapter_path}</code>
           </span>
         </div>
       )}

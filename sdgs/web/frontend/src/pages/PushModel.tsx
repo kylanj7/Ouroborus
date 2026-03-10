@@ -284,7 +284,7 @@ export default function PushModel() {
               href={repoUrl}
               target="_blank"
               rel="noopener noreferrer"
-              style={{ color: 'var(--accent-cyan)' }}
+              style={{ color: 'var(--accent-blue)' }}
             >
               {repoUrl}
             </a>

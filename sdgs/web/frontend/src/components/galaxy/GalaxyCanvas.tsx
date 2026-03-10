@@ -1,8 +1,8 @@
-import { useCallback, useRef, useEffect, useState, useMemo } from 'react'
+import { useCallback, useRef, useEffect, useState } from 'react'
 import ForceGraph3D from 'react-force-graph-3d'
 import * as THREE from 'three'
 
-// ── Shared geometries ────────────────────────────────────────────────
+// ── Shared geometries (created once, reused for all nodes) ──────────
 const SHARED_GEO = {
   qa: new THREE.OctahedronGeometry(1, 0),
   paper: new THREE.SphereGeometry(1, 8, 6),
@@ -10,27 +10,29 @@ const SHARED_GEO = {
   datasetWire: new THREE.IcosahedronGeometry(1.15, 1),
 }
 
-// ── Material cache (includes sprites) ────────────────────────────────
+// Invisible material for QA raycast proxies.
+// material.visible=false means zero draw cost but geometry still
+// intersects the Three.js Raycaster so clicks keep working.
+const QA_PROXY_MAT = new THREE.MeshBasicMaterial({ visible: false })
+
+// ── Material cache (paper/dataset only) ─────────────────────────────
 const _matCache = new Map<string, THREE.Material>()
 
 function getMaterial(
-  kind: 'basic' | 'phong' | 'sprite',
+  kind: 'basic' | 'phong',
   color: string,
   opacity: number,
-  emissiveIntensity = 0,
   extra: Record<string, any> = {},
 ): THREE.Material {
-  const key = `${kind}|${color}|${opacity}|${emissiveIntensity}|${JSON.stringify(extra)}`
+  const key = `${kind}|${color}|${opacity}|${JSON.stringify(extra)}`
   let mat = _matCache.get(key)
   if (!mat) {
     if (kind === 'basic') {
       mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity, ...extra })
-    } else if (kind === 'sprite') {
-      mat = new THREE.SpriteMaterial({ transparent: true, opacity, ...extra })
     } else {
       mat = new THREE.MeshPhongMaterial({
         color, transparent: true, opacity,
-        emissive: color, emissiveIntensity, ...extra,
+        emissive: color, emissiveIntensity: 0.3, ...extra,
       })
     }
     _matCache.set(key, mat)
@@ -38,64 +40,11 @@ function getMaterial(
   return mat
 }
 
-// ── Glow texture cache ───────────────────────────────────────────────
-const glowTextureCache = new Map<string, THREE.Texture>()
+// ── Temp objects for InstancedMesh updates (allocated once) ─────────
+const _dummy = new THREE.Object3D()
+const _tmpColor = new THREE.Color()
 
-function createGlowTexture(color: string): THREE.Texture {
-  if (glowTextureCache.has(color)) return glowTextureCache.get(color)!
-  const size = 128
-  const canvas = document.createElement('canvas')
-  canvas.width = size
-  canvas.height = size
-  const ctx = canvas.getContext('2d')!
-  const gradient = ctx.createRadialGradient(64, 64, 0, 64, 64, 64)
-  gradient.addColorStop(0, color)
-  gradient.addColorStop(0.4, 'rgba(126, 184, 255, 0.15)')
-  gradient.addColorStop(1, 'rgba(0, 0, 0, 0)')
-  ctx.fillStyle = gradient
-  ctx.fillRect(0, 0, size, size)
-  const texture = new THREE.CanvasTexture(canvas)
-  glowTextureCache.set(color, texture)
-  return texture
-}
-
-// ── QA cloud shaders (all orbit math on GPU) ─────────────────────────
-const CLOUD_VERT = `
-uniform float uTime;
-attribute vec3 aCenter;
-attribute float aRadius;
-attribute float aSpeed;
-attribute vec3 aPhase;
-varying vec3 vColor;
-
-void main() {
-  vColor = color;
-  vec3 offset = vec3(
-    cos(uTime * aSpeed + aPhase.x) * aRadius,
-    sin(uTime * aSpeed + aPhase.y) * aRadius * 0.7,
-    cos(uTime * aSpeed * 0.8 + aPhase.z) * aRadius
-  );
-  vec4 mvPos = modelViewMatrix * vec4(aCenter + offset, 1.0);
-  gl_PointSize = 6.0 * (200.0 / -mvPos.z);
-  gl_PointSize = clamp(gl_PointSize, 1.5, 16.0);
-  gl_Position = projectionMatrix * mvPos;
-}
-`
-
-const CLOUD_FRAG = `
-varying vec3 vColor;
-void main() {
-  float d = length(gl_PointCoord - 0.5) * 2.0;
-  if (d > 1.0) discard;
-  float alpha = (1.0 - smoothstep(0.3, 1.0, d)) * 0.75;
-  gl_FragColor = vec4(vColor, alpha);
-}
-`
-
-
-// ══════════════════════════════════════════════════════════════════════
-// Component
-// ══════════════════════════════════════════════════════════════════════
+// ── Component ───────────────────────────────────────────────────────
 
 interface Props {
   nodes: any[]
@@ -108,24 +57,16 @@ export default function GalaxyCanvas({ nodes, links, searchQuery, onNodeClick }:
   const fgRef = useRef<any>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 })
-
   const starfieldRef = useRef<THREE.Points | null>(null)
-  const qaCloudRef = useRef<THREE.Points | null>(null)
   const nodesRef = useRef(nodes)
   nodesRef.current = nodes
 
-  // Nodes eligible for decorative QA cloud (papers + datasets with QA pairs)
-  const cloudNodes = useMemo(
-    () => nodes.filter((n: any) =>
-      (n.type === 'paper' || n.type === 'dataset') && (n.qa_pair_count || 0) > 0 && !n._expanded
-    ),
-    [nodes],
-  )
+  const qaInstanceRef = useRef<{
+    mesh: THREE.InstancedMesh
+    nodeIds: string[]
+  } | null>(null)
 
-  // Stable mapping: particle index → paper node ID (for center sync)
-  const cloudMapRef = useRef<string[]>([])
-
-  // ── Resize ─────────────────────────────────────────────────────────
+  // ── Resize ────────────────────────────────────────────────────────
   useEffect(() => {
     const updateSize = () => {
       if (containerRef.current) {
@@ -140,7 +81,18 @@ export default function GalaxyCanvas({ nodes, links, searchQuery, onNodeClick }:
     return () => window.removeEventListener('resize', updateSize)
   }, [])
 
-  // ── Auto-rotate ────────────────────────────────────────────────────
+  // ── Renderer pixel ratio ──────────────────────────────────────────
+  useEffect(() => {
+    const fg = fgRef.current
+    if (!fg) return
+    const renderer = fg.renderer()
+    if (renderer) {
+      // Cap at 2x to avoid excessive GPU fill on 3x+ displays
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    }
+  }, [])
+
+  // ── Auto-rotate ───────────────────────────────────────────────────
   useEffect(() => {
     const fg = fgRef.current
     if (!fg) return
@@ -151,7 +103,48 @@ export default function GalaxyCanvas({ nodes, links, searchQuery, onNodeClick }:
     }
   }, [nodes])
 
-  // ── Starfield (static positions, rotation via onBeforeRender) ──────
+  // ── Force tuning (keep QA nodes near parents) ─────────────────────
+  const forcesApplied = useRef(false)
+  useEffect(() => {
+    const fg = fgRef.current
+    if (!fg || nodes.length === 0) return
+
+    // Only configure once -- d3 forces persist across data updates.
+    // Defer to next frame so ForceGraph3D finishes its own init first.
+    if (forcesApplied.current) return
+    const timer = setTimeout(() => {
+      try {
+        const charge = fg.d3Force('charge')
+        if (charge) {
+          charge.strength((node: any) => {
+            if (node.type === 'qa') return -2
+            if (node.type === 'dataset') return -80
+            return -30
+          })
+        }
+
+        const link = fg.d3Force('link')
+        if (link) {
+          link.distance((l: any) => {
+            if (l.type === 'paper_qa' || l.type === 'dataset_qa') return 8
+            if (l.type === 'dataset_paper') return 30
+            return 50
+          })
+          link.strength((l: any) => {
+            if (l.type === 'paper_qa' || l.type === 'dataset_qa') return 0.8
+            if (l.type === 'dataset_paper') return 0.3
+            return 0.1
+          })
+        }
+
+        forcesApplied.current = true
+        fg.d3ReheatSimulation()
+      } catch (_) { /* force graph not ready yet */ }
+    }, 100)
+    return () => clearTimeout(timer)
+  }, [nodes])
+
+  // ── Starfield ─────────────────────────────────────────────────────
   useEffect(() => {
     const fg = fgRef.current
     if (!fg || nodes.length === 0) return
@@ -186,7 +179,6 @@ export default function GalaxyCanvas({ nodes, links, searchQuery, onNodeClick }:
       depthWrite: false,
     })
     const stars = new THREE.Points(geo, mat)
-    // Rotation driven by Three.js render loop — zero CPU cost
     stars.onBeforeRender = () => {
       const t = performance.now() * 0.001
       stars.rotation.y = t * 0.008
@@ -203,180 +195,112 @@ export default function GalaxyCanvas({ nodes, links, searchQuery, onNodeClick }:
     }
   }, [nodes.length > 0]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── QA cloud (GPU-driven orbits via ShaderMaterial) ────────────────
+  // ── QA InstancedMesh (GPU-batched: 1 draw call for ALL QA nodes) ──
   useEffect(() => {
     const fg = fgRef.current
     if (!fg) return
     const scene = fg.scene()
 
-    if (qaCloudRef.current) {
-      scene.remove(qaCloudRef.current)
-      qaCloudRef.current.geometry.dispose()
-      ;(qaCloudRef.current.material as THREE.Material).dispose()
-      qaCloudRef.current = null
+    // Clean up previous
+    if (qaInstanceRef.current) {
+      scene.remove(qaInstanceRef.current.mesh)
+      ;(qaInstanceRef.current.mesh.material as THREE.Material).dispose()
+      qaInstanceRef.current.mesh.dispose()
+      qaInstanceRef.current = null
     }
 
-    if (cloudNodes.length === 0) {
-      cloudMapRef.current = []
-      return
-    }
+    const qaNodes = nodes.filter((n: any) => n.type === 'qa')
+    if (qaNodes.length === 0) return
 
-    const tmpColor = new THREE.Color()
-    const nodeIds: string[] = []
-    const centers: number[] = []
-    const radii: number[] = []
-    const speeds: number[] = []
-    const phases: number[] = []
-    const colors: number[] = []
+    const count = qaNodes.length
+    const mat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.9 })
+    const mesh = new THREE.InstancedMesh(SHARED_GEO.qa, mat, count)
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
 
-    for (const paper of cloudNodes) {
-      const qaCount = paper.qa_pair_count || 0
-      // Datasets with many QAs get a dense cloud; papers stay small
-      const isLargeDataset = paper.type === 'dataset' && qaCount > 20
-      const particleCount = isLargeDataset
-        ? Math.min(Math.round(Math.sqrt(qaCount) * 8), 600)
-        : Math.min(qaCount, 8)
-      const baseRadius = isLargeDataset
-        ? (paper.size || 4) * 2 + Math.sqrt(qaCount) * 1.2
-        : (paper.size || 4) * 1.2 + Math.log2(qaCount + 1) * 2
-      const radiusJitter = isLargeDataset ? baseRadius * 0.4 : 5
-      tmpColor.set(paper.color || '#6ee7d8')
-
-      for (let i = 0; i < particleCount; i++) {
-        nodeIds.push(paper.id)
-        centers.push(paper.x || 0, paper.y || 0, paper.z || 0)
-        radii.push(baseRadius * (0.3 + Math.random() * 0.7) + Math.random() * radiusJitter)
-        speeds.push(0.1 + Math.random() * 0.4)
-        phases.push(
-          Math.random() * Math.PI * 2,
-          Math.random() * Math.PI * 2,
-          Math.random() * Math.PI * 2,
-        )
-        colors.push(tmpColor.r, tmpColor.g, tmpColor.b)
+    // Per-instance colors (with search dimming)
+    for (let i = 0; i < count; i++) {
+      _tmpColor.set(qaNodes[i].color || '#6ee7d8')
+      if (searchQuery && !qaNodes[i]._match) {
+        _tmpColor.multiplyScalar(0.15)
       }
+      mesh.setColorAt(i, _tmpColor)
     }
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
 
-    cloudMapRef.current = nodeIds
-    const total = nodeIds.length
-
-    const geo = new THREE.BufferGeometry()
-    // position is required by Three.js but unused — shader reads aCenter
-    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(total * 3), 3))
-    geo.setAttribute('aCenter', new THREE.BufferAttribute(new Float32Array(centers), 3))
-    geo.setAttribute('aRadius', new THREE.BufferAttribute(new Float32Array(radii), 1))
-    geo.setAttribute('aSpeed', new THREE.BufferAttribute(new Float32Array(speeds), 1))
-    geo.setAttribute('aPhase', new THREE.BufferAttribute(new Float32Array(phases), 3))
-    geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(colors), 3))
-
-    const mat = new THREE.ShaderMaterial({
-      vertexShader: CLOUD_VERT,
-      fragmentShader: CLOUD_FRAG,
-      uniforms: { uTime: { value: 0 } },
-      vertexColors: true,
-      transparent: true,
-      depthWrite: false,
-    })
-
-    const points = new THREE.Points(geo, mat)
-    // Time uniform updated by Three.js render loop — 1 float, zero overhead
-    points.onBeforeRender = () => {
-      mat.uniforms.uTime.value = performance.now() * 0.001
+    // Initial transforms (may be 0,0,0 before force sim runs)
+    for (let i = 0; i < count; i++) {
+      _dummy.position.set(qaNodes[i].x || 0, qaNodes[i].y || 0, qaNodes[i].z || 0)
+      _dummy.scale.setScalar(qaNodes[i].size || 2.5)
+      _dummy.updateMatrix()
+      mesh.setMatrixAt(i, _dummy.matrix)
     }
-    scene.add(points)
-    qaCloudRef.current = points
+    mesh.instanceMatrix.needsUpdate = true
+
+    scene.add(mesh)
+    qaInstanceRef.current = { mesh, nodeIds: qaNodes.map((n: any) => n.id) }
 
     return () => {
-      scene.remove(points)
-      geo.dispose()
-      mat.dispose()
-      qaCloudRef.current = null
-      cloudMapRef.current = []
+      scene.remove(mesh)
+      ;(mesh.material as THREE.Material).dispose()
+      mesh.dispose()
+      qaInstanceRef.current = null
     }
-  }, [cloudNodes])
+  }, [nodes, searchQuery])
 
-  // ── Sync cloud center positions from force sim (CPU, only during sim) ──
-  const syncCloudCenters = useCallback(() => {
-    const cloud = qaCloudRef.current
-    const map = cloudMapRef.current
-    if (!cloud || map.length === 0) return
+  // ── Sync QA instance positions from force simulation each tick ────
+  const syncQAPositions = useCallback(() => {
+    const inst = qaInstanceRef.current
+    if (!inst) return
 
-    const centerAttr = cloud.geometry.getAttribute('aCenter') as THREE.BufferAttribute
-    const arr = centerAttr.array as Float32Array
-
-    // Build lookup from current nodes
+    const { mesh, nodeIds } = inst
     const currentNodes = nodesRef.current
     const nodeMap = new Map<string, any>()
     for (const n of currentNodes) nodeMap.set(n.id, n)
 
-    for (let i = 0; i < map.length; i++) {
-      const paper = nodeMap.get(map[i])
-      if (!paper) continue
-      arr[i * 3] = paper.x || 0
-      arr[i * 3 + 1] = paper.y || 0
-      arr[i * 3 + 2] = paper.z || 0
+    for (let i = 0; i < nodeIds.length; i++) {
+      const node = nodeMap.get(nodeIds[i])
+      if (!node) continue
+      _dummy.position.set(node.x || 0, node.y || 0, node.z || 0)
+      _dummy.scale.setScalar(node.size || 2.5)
+      _dummy.updateMatrix()
+      mesh.setMatrixAt(i, _dummy.matrix)
     }
-    centerAttr.needsUpdate = true
+    mesh.instanceMatrix.needsUpdate = true
   }, [])
 
-  // ── nodeThreeObject ────────────────────────────────────────────────
+  // ── Node renderer ─────────────────────────────────────────────────
   const nodeThreeObject = useCallback((node: any) => {
     const color = node.color || '#7eb8ff'
     const size = node.size || 4
-    const isMatch = searchQuery && node._match
     const dimmed = searchQuery && !node._match
-    const nodeColor = isMatch ? '#ffffff' : color
     const opacity = dimmed ? 0.15 : 1
 
+    if (node.type === 'qa') {
+      // Invisible proxy: zero draw cost, still clickable via raycaster
+      // (actual QA rendering done by InstancedMesh above)
+      const mesh = new THREE.Mesh(SHARED_GEO.qa, QA_PROXY_MAT)
+      mesh.scale.setScalar(size)
+      return mesh
+    }
+
     if (node.type === 'dataset') {
-      const mat = getMaterial('phong', nodeColor, opacity, 0.6, { shininess: 100 })
+      const mat = getMaterial('phong', color, opacity, { shininess: 100 })
       const mesh = new THREE.Mesh(SHARED_GEO.dataset, mat)
       mesh.scale.setScalar(size)
-
-      const wireMat = getMaterial('basic', '#ffffff', opacity * 0.25, 0, { wireframe: true })
+      const wireMat = getMaterial('basic', '#ffffff', opacity * 0.25, { wireframe: true })
       const wire = new THREE.Mesh(SHARED_GEO.datasetWire, wireMat)
       mesh.add(wire)
-
-      const spriteMat = getMaterial('sprite', color, opacity * 0.4, 0, {
-        map: createGlowTexture(color),
-        blending: THREE.AdditiveBlending,
-      }) as THREE.SpriteMaterial
-      const sprite = new THREE.Sprite(spriteMat)
-      sprite.scale.set(6, 6, 1)
-      mesh.add(sprite)
       return mesh
     }
 
-    if (node.type === 'qa') {
-      const mat = getMaterial('phong', nodeColor, opacity * 0.9, 0.4)
-      const mesh = new THREE.Mesh(SHARED_GEO.qa, mat)
-      mesh.scale.setScalar(size)
-
-      const spriteMat = getMaterial('sprite', color, opacity * 0.2, 0, {
-        map: createGlowTexture(color),
-        blending: THREE.AdditiveBlending,
-      }) as THREE.SpriteMaterial
-      const sprite = new THREE.Sprite(spriteMat)
-      sprite.scale.set(3, 3, 1)
-      mesh.add(sprite)
-      return mesh
-    }
-
-    // Paper nodes
-    const mat = getMaterial('phong', nodeColor, opacity, 0.3)
+    // Paper: MeshPhongMaterial
+    const mat = getMaterial('phong', color, opacity)
     const mesh = new THREE.Mesh(SHARED_GEO.paper, mat)
     mesh.scale.setScalar(size)
-
-    const spriteMat = getMaterial('sprite', color, opacity * 0.3, 0, {
-      map: createGlowTexture(color),
-      blending: THREE.AdditiveBlending,
-    }) as THREE.SpriteMaterial
-    const sprite = new THREE.Sprite(spriteMat)
-    sprite.scale.set(5, 5, 1)
-    mesh.add(sprite)
     return mesh
   }, [searchQuery])
 
-  // ── Tooltip ────────────────────────────────────────────────────────
+  // ── Tooltip ───────────────────────────────────────────────────────
   const getNodeLabel = useCallback((node: any) => {
     if (node.type === 'dataset') {
       return `<div style="background:rgba(10,10,30,0.9);padding:8px 12px;border-radius:6px;border:1px solid rgba(126,184,255,0.3);max-width:300px">
@@ -403,7 +327,7 @@ export default function GalaxyCanvas({ nodes, links, searchQuery, onNodeClick }:
     </div>`
   }, [])
 
-  // ── Render ─────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%', background: '#06060f' }}>
       {nodes.length === 0 ? (
@@ -414,6 +338,7 @@ export default function GalaxyCanvas({ nodes, links, searchQuery, onNodeClick }:
       ) : (
         <ForceGraph3D
           ref={fgRef}
+          rendererConfig={{ antialias: true, alpha: true, powerPreference: 'high-performance' }}
           width={dimensions.width}
           height={dimensions.height}
           graphData={{ nodes, links }}
@@ -429,27 +354,11 @@ export default function GalaxyCanvas({ nodes, links, searchQuery, onNodeClick }:
             link.type === 'paper_qa' || link.type === 'dataset_qa' ? 0.8 : link.weight * 2
           }
           linkOpacity={0.7}
-          linkDirectionalParticles={(link: any) =>
-            link.type === 'dataset_paper' ? 3
-              : link.type === 'paper_qa' || link.type === 'dataset_qa' ? 2
-              : link.type === 'keyword' ? 2
-              : 0
-          }
-          linkDirectionalParticleWidth={(link: any) =>
-            link.type === 'paper_qa' || link.type === 'dataset_qa' ? 1.2 : 1.8
-          }
-          linkDirectionalParticleSpeed={0.006}
-          linkDirectionalParticleColor={(link: any) => {
-            if (link.type === 'dataset_paper') return '#7eb8ff'
-            if (link.type === 'paper_qa' || link.type === 'dataset_qa') return '#6ee7d8'
-            return '#ffd666'
-          }}
           onNodeClick={onNodeClick}
           nodeLabel={getNodeLabel}
-          onEngineTick={syncCloudCenters}
-          onEngineStop={syncCloudCenters}
-          cooldownTicks={100}
-          d3AlphaDecay={0.02}
+          onEngineTick={syncQAPositions}
+          cooldownTicks={200}
+          d3AlphaDecay={0.015}
           d3VelocityDecay={0.3}
           d3AlphaMin={0.001}
           backgroundColor="#06060f"

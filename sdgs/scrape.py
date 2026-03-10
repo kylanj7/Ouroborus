@@ -120,7 +120,7 @@ def _search_arxiv(topic: str, max_results: int) -> list[dict]:
     return papers
 
 
-def _search_semantic_scholar(topic: str, max_results: int) -> list[dict]:
+def _search_semantic_scholar(topic: str, max_results: int, s2_api_key: str | None = None) -> list[dict]:
     """Search Semantic Scholar API and return paper metadata dicts."""
     papers = []
     try:
@@ -132,7 +132,7 @@ def _search_semantic_scholar(topic: str, max_results: int) -> list[dict]:
             "fields": "paperId,title,authors,abstract,year,externalIds,url,citationCount,isOpenAccess,openAccessPdf",
         }
         headers = {}
-        s2_key = os.environ.get("S2_API_KEY")
+        s2_key = s2_api_key or os.environ.get("S2_API_KEY")
         if s2_key:
             headers["x-api-key"] = s2_key
         resp = requests.get(url, params=params, headers=headers, timeout=30)
@@ -172,12 +172,13 @@ def _search_semantic_scholar(topic: str, max_results: int) -> list[dict]:
     return papers
 
 
-def search_papers(topic: str, max_results: int = 20) -> list[dict]:
+def search_papers(topic: str, max_results: int = 20, s2_api_key: str | None = None) -> list[dict]:
     """Search arXiv + Semantic Scholar, deduplicate, return merged results.
 
     Args:
         topic: Research topic query string.
         max_results: Max papers to return total.
+        s2_api_key: Optional Semantic Scholar API key (avoids env var race).
 
     Returns:
         List of paper metadata dicts, deduplicated by paper_id.
@@ -188,7 +189,7 @@ def search_papers(topic: str, max_results: int = 20) -> list[dict]:
     arxiv_papers = _search_arxiv(topic, max_results)
     print(f"  arXiv: {len(arxiv_papers)} results")
 
-    s2_papers = _search_semantic_scholar(topic, max_results)
+    s2_papers = _search_semantic_scholar(topic, max_results, s2_api_key=s2_api_key)
     print(f"  Semantic Scholar: {len(s2_papers)} results")
 
     # Deduplicate — prefer arXiv entries (they have direct PDF URLs)
@@ -653,6 +654,7 @@ def run_scrape(
     temperature: float | None = None,
     max_tokens: int | None = None,
     cancel_event=None,
+    s2_api_key: str | None = None,
 ):
     """Orchestrate the full scrape pipeline.
 
@@ -674,7 +676,7 @@ def run_scrape(
         collect_only: If True, just save paper metadata.
     """
     # ── Step 1: Search ──
-    papers = search_papers(topic, max_results=max_papers)
+    papers = search_papers(topic, max_results=max_papers, s2_api_key=s2_api_key)
 
     if not papers:
         raise RuntimeError(f"No papers found for topic '{topic}'. APIs may be rate-limited — check arXiv and Semantic Scholar access.")
@@ -720,12 +722,12 @@ def run_scrape(
     # ── Step 3: Setup LLM client ──
     from .providers import get_client
 
-    # Load task config
-    task_config_path = Path(__file__).parent.parent / "configs" / "tasks" / f"{task_name}.yaml"
+    # Load task config -- resolve from project root (2 levels up from sdgs/)
+    _project_root = Path(__file__).resolve().parent.parent
+    task_config_path = _project_root / "configs" / "tasks" / f"{task_name}.yaml"
     if not task_config_path.exists():
-        from pathlib import Path as P
         available = ", ".join(
-            sorted(p.stem for p in (P(__file__).parent.parent / "configs" / "tasks").glob("*.yaml"))
+            sorted(p.stem for p in (_project_root / "configs" / "tasks").glob("*.yaml"))
         )
         print(f"Unknown task: '{task_name}'. Available: {available}")
         return

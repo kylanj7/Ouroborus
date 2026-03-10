@@ -20,30 +20,35 @@ export interface LoopSSEMessage {
   domain_scores?: Record<string, Record<string, number>>
 }
 
-export function createDatasetSSE(
-  datasetId: number,
-  onMessage: (msg: SSEMessage) => void,
+function createSSEWithBackoff<T>(
+  url: string,
+  onMessage: (msg: T) => void,
   onDone?: () => void,
 ): () => void {
   let lastEventId = 0
   let reconnectTimer: number | null = null
   let eventSource: EventSource | null = null
   let closed = false
+  let retryCount = 0
 
   function connect(fromId: number) {
     if (closed) return
 
-    const url = `/api/events/datasets/${datasetId}?last_id=${fromId}`
-    eventSource = new EventSource(url)
+    const fullUrl = `${url}${url.includes('?') ? '&' : '?'}last_id=${fromId}`
+    eventSource = new EventSource(fullUrl)
+
+    eventSource.onopen = () => {
+      retryCount = 0
+    }
 
     eventSource.onmessage = (event) => {
       if (event.lastEventId) {
         lastEventId = parseInt(event.lastEventId, 10) + 1
       }
       try {
-        const msg: SSEMessage = JSON.parse(event.data)
+        const msg: T = JSON.parse(event.data)
         onMessage(msg)
-        if (msg.type === 'done') {
+        if ((msg as any).type === 'done') {
           cleanup()
           onDone?.()
         }
@@ -55,10 +60,12 @@ export function createDatasetSSE(
     eventSource.onerror = () => {
       if (closed) return
       eventSource?.close()
-      // Reconnect after 2 seconds from where we left off
+      // Exponential backoff: 2s, 4s, 8s, 16s, max 30s
+      const delay = Math.min(2000 * Math.pow(2, retryCount), 30000)
+      retryCount++
       reconnectTimer = window.setTimeout(() => {
         connect(lastEventId)
-      }, 2000)
+      }, delay)
     }
   }
 
@@ -75,6 +82,18 @@ export function createDatasetSSE(
   connect(0)
 
   return cleanup
+}
+
+export function createDatasetSSE(
+  datasetId: number,
+  onMessage: (msg: SSEMessage) => void,
+  onDone?: () => void,
+): () => void {
+  return createSSEWithBackoff<SSEMessage>(
+    `/api/events/datasets/${datasetId}`,
+    onMessage,
+    onDone,
+  )
 }
 
 export function createTrainingSSE(
@@ -82,55 +101,11 @@ export function createTrainingSSE(
   onMessage: (msg: SSEMessage) => void,
   onDone?: () => void,
 ): () => void {
-  let lastEventId = 0
-  let reconnectTimer: number | null = null
-  let eventSource: EventSource | null = null
-  let closed = false
-
-  function connect(fromId: number) {
-    if (closed) return
-
-    const url = `/api/events/training/${runId}?last_id=${fromId}`
-    eventSource = new EventSource(url)
-
-    eventSource.onmessage = (event) => {
-      if (event.lastEventId) {
-        lastEventId = parseInt(event.lastEventId, 10) + 1
-      }
-      try {
-        const msg: SSEMessage = JSON.parse(event.data)
-        onMessage(msg)
-        if (msg.type === 'done') {
-          cleanup()
-          onDone?.()
-        }
-      } catch {
-        // ignore parse errors
-      }
-    }
-
-    eventSource.onerror = () => {
-      if (closed) return
-      eventSource?.close()
-      reconnectTimer = window.setTimeout(() => {
-        connect(lastEventId)
-      }, 2000)
-    }
-  }
-
-  function cleanup() {
-    closed = true
-    if (reconnectTimer !== null) {
-      clearTimeout(reconnectTimer)
-      reconnectTimer = null
-    }
-    eventSource?.close()
-    eventSource = null
-  }
-
-  connect(0)
-
-  return cleanup
+  return createSSEWithBackoff<SSEMessage>(
+    `/api/events/training/${runId}`,
+    onMessage,
+    onDone,
+  )
 }
 
 export function createLoopSSE(
@@ -138,53 +113,9 @@ export function createLoopSSE(
   onMessage: (msg: LoopSSEMessage) => void,
   onDone?: () => void,
 ): () => void {
-  let lastEventId = 0
-  let reconnectTimer: number | null = null
-  let eventSource: EventSource | null = null
-  let closed = false
-
-  function connect(fromId: number) {
-    if (closed) return
-
-    const url = `/api/events/loop/${loopId}?last_id=${fromId}`
-    eventSource = new EventSource(url)
-
-    eventSource.onmessage = (event) => {
-      if (event.lastEventId) {
-        lastEventId = parseInt(event.lastEventId, 10) + 1
-      }
-      try {
-        const msg: LoopSSEMessage = JSON.parse(event.data)
-        onMessage(msg)
-        if (msg.type === 'done') {
-          cleanup()
-          onDone?.()
-        }
-      } catch {
-        // ignore parse errors
-      }
-    }
-
-    eventSource.onerror = () => {
-      if (closed) return
-      eventSource?.close()
-      reconnectTimer = window.setTimeout(() => {
-        connect(lastEventId)
-      }, 2000)
-    }
-  }
-
-  function cleanup() {
-    closed = true
-    if (reconnectTimer !== null) {
-      clearTimeout(reconnectTimer)
-      reconnectTimer = null
-    }
-    eventSource?.close()
-    eventSource = null
-  }
-
-  connect(0)
-
-  return cleanup
+  return createSSEWithBackoff<LoopSSEMessage>(
+    `/api/events/loop/${loopId}`,
+    onMessage,
+    onDone,
+  )
 }

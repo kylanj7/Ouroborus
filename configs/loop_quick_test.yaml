@@ -1,7 +1,7 @@
 qftl:
   base_url: "http://localhost:8000"
-  username: ""    # Set your SDGS username
-  password: ""    # Set your SDGS password
+  username: "loop-agent"
+  password: "loop-agent-pass"
   poll_interval_seconds: 10
   request_timeout_seconds: 1800
 
@@ -24,3 +24,7 @@ training:
 evaluation:
   sample_count: 5
   judge_model: "nemotron-3-nano:latest"
+
+wandb:
+  enabled: false
+  project: "ouroborus-evolution-test"

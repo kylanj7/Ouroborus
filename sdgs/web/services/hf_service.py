@@ -30,6 +30,9 @@ def push_dataset_to_hf(
     if not qa_pairs:
         raise ValueError("No Q&A pairs to upload — dataset is empty.")
 
+    # Sanitize: strip whitespace from each component of the repo name
+    repo_name = "/".join(part.strip() for part in repo_name.split("/") if part.strip())
+
     api = HfApi(token=hf_token)
 
     # Create or get the repo

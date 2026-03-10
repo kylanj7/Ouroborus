@@ -280,6 +280,24 @@ export const getPapers = (page = 1, search?: string, datasetId?: number, topic?:
 
 export const getPaperTopics = () => request<string[]>('/papers/topics')
 
+export async function downloadPaperPdf(paperId: number, filename: string) {
+  const res = await fetch(`${BASE_URL}/papers/${paperId}/pdf`, {
+    headers: { ...getAuthHeader() },
+  })
+  if (!res.ok) {
+    throw new ApiError(await res.text(), res.status)
+  }
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename.endsWith('.pdf') ? filename : `${filename}.pdf`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
 // Galaxy
 export interface GalaxyNode {
   id: string
@@ -293,8 +311,10 @@ export interface GalaxyNode {
   abstract?: string | null
   authors?: string[] | null
   url?: string | null
+  qa_pair_count?: number
   instruction?: string | null
-  output_preview?: string | null
+  answer_text?: string | null
+  is_valid?: boolean | null
 }
 
 export interface GalaxyLink {
@@ -309,6 +329,7 @@ export interface ClusterInfo {
   label: string
   color: string
   paper_count: number
+  qa_pair_count: number
 }
 
 export interface GalaxyData {
@@ -400,6 +421,9 @@ export const getTrainingRun = (id: number) =>
 export const cancelTraining = (id: number) =>
   request<{ cancelled: boolean }>(`/training/${id}/cancel`, { method: 'POST' })
 
+export const deleteTrainingRun = (id: number) =>
+  request<{ deleted: boolean }>(`/training/${id}`, { method: 'DELETE' })
+
 // Evaluations
 export interface EvaluationRun {
   id: number
@@ -485,6 +509,63 @@ export interface ArtifactListResponse {
 
 export const getArtifacts = () =>
   request<ArtifactListResponse>('/training/artifacts')
+
+// Base Models
+export const getBaseModels = () =>
+  request<ArtifactEntry[]>('/training/base-models')
+
+export function downloadBaseModel(
+  repo_id: string,
+  onProgress: (msg: { type: string; data?: string; percent?: number; path?: string; label?: string; status?: string }) => void,
+): () => void {
+  const token = localStorage.getItem('access_token') || ''
+  const url = `${BASE_URL}/training/download-model?repo_id=${encodeURIComponent(repo_id)}`
+  const es = new EventSource(url)
+
+  // EventSource doesn't support custom headers, so we need fetch-based SSE
+  // Actually, let's use fetch with streaming reader instead
+  const controller = new AbortController()
+
+  ;(async () => {
+    try {
+      const res = await fetch(url, {
+        headers: { ...getAuthHeader() },
+        signal: controller.signal,
+      })
+      if (!res.ok || !res.body) {
+        onProgress({ type: 'error', data: `HTTP ${res.status}` })
+        return
+      }
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n\n')
+        buffer = lines.pop() || ''
+        for (const block of lines) {
+          const dataLine = block.split('\n').find(l => l.startsWith('data: '))
+          if (dataLine) {
+            try {
+              const msg = JSON.parse(dataLine.slice(6))
+              onProgress(msg)
+            } catch { /* skip */ }
+          }
+        }
+      }
+    } catch (e) {
+      if (!controller.signal.aborted) {
+        onProgress({ type: 'error', data: e instanceof Error ? e.message : 'Download failed' })
+      }
+    }
+  })()
+
+  es.close()
+  return () => controller.abort()
+}
 
 // Training Knobs
 export const updateKnobs = (runId: number, data: { learning_rate?: number }) =>
