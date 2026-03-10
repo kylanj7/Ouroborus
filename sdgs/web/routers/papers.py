@@ -39,6 +39,41 @@ def get_paper_topics(
     return topics
 
 
+@router.delete("/{paper_id}")
+def delete_paper(
+    paper_id: int,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    paper = db.query(Paper).filter(
+        Paper.id == paper_id,
+        Paper.user_id == current_user.id,
+    ).first()
+    if not paper:
+        raise HTTPException(404, "Paper not found")
+    db.delete(paper)
+    db.commit()
+    return {"status": "deleted"}
+
+
+@router.post("/bulk-delete")
+def bulk_delete_papers(
+    req: dict,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Delete multiple papers by ID."""
+    paper_ids = req.get("paper_ids", [])
+    if not paper_ids:
+        raise HTTPException(400, "No paper IDs provided")
+    deleted = db.query(Paper).filter(
+        Paper.id.in_(paper_ids),
+        Paper.user_id == current_user.id,
+    ).delete(synchronize_session=False)
+    db.commit()
+    return {"deleted": deleted}
+
+
 @router.get("", response_model=PaperListResponse)
 def list_papers(
     page: int = Query(1, ge=1),

@@ -1,11 +1,13 @@
 import { NavLink } from 'react-router-dom'
-import { Database, FileText, Orbit, Cpu, FlaskConical, ArrowRightLeft, Upload, Settings, LogOut, RefreshCw } from 'lucide-react'
+import { LayoutDashboard, Database, FileText, Orbit, Cpu, FlaskConical, ArrowRightLeft, Upload, Settings, LogOut, RefreshCw, BookOpen } from 'lucide-react'
 import { useAuthStore } from '../../store/authStore'
 
 const navItems = [
-  { to: '/', icon: Database, label: 'Datasets' },
+  { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/datasets', icon: Database, label: 'Datasets' },
   { to: '/papers', icon: FileText, label: 'Papers' },
-  { to: '/galaxy', icon: Orbit, label: 'Galaxy' },
+  { to: '/knowledge', icon: BookOpen, label: 'Knowledge Base' },
+  { to: '/galaxy', icon: Orbit, label: 'QA Visualizer' },
   { to: '/training', icon: Cpu, label: 'Training' },
   { to: '/evaluations', icon: FlaskConical, label: 'Evaluations' },
   { to: '/loop', icon: RefreshCw, label: 'Evolution Loop' },

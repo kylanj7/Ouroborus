@@ -98,10 +98,10 @@ export function createDatasetSSE(
 
 export function createTrainingSSE(
   runId: number,
-  onMessage: (msg: SSEMessage) => void,
+  onMessage: (msg: Record<string, unknown>) => void,
   onDone?: () => void,
 ): () => void {
-  return createSSEWithBackoff<SSEMessage>(
+  return createSSEWithBackoff<Record<string, unknown>>(
     `/api/events/training/${runId}`,
     onMessage,
     onDone,

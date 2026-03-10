@@ -1,0 +1,319 @@
+"""
+Knowledge base service: ChromaDB vector store with MiniLM-L6-v2 embeddings.
+
+Follows the same pattern as the Nemotron-3-Nano RAG pipeline:
+- MD5 hash-based duplicate detection (skip already-indexed files)
+- RecursiveCharacterTextSplitter for chunking
+- ChromaDB for vector storage with file-based persistence
+- Batch insertion with progress tracking
+"""
+import hashlib
+import json
+import os
+from pathlib import Path
+from typing import Optional
+
+import fitz  # PyMuPDF
+from langchain_chroma import Chroma
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+from ..config import BASE_DIR
+
+# --- Configuration (mirrors Nemotron settings.py) ---
+
+EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+CHUNK_SIZE = 1000
+CHUNK_OVERLAP = 200
+COLLECTION_NAME = "ouroboros_papers"
+TOP_K_RESULTS = 5
+VECTOR_STORE_DIR = BASE_DIR / "data" / "vectorstore" / "chroma_db"
+PDF_DIR = BASE_DIR / "data" / "pdfs"
+
+# Ensure directories exist
+VECTOR_STORE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+# --- Singleton embedding model (expensive to load, reuse across requests) ---
+
+_embeddings: Optional[HuggingFaceEmbeddings] = None
+
+
+def get_embeddings() -> HuggingFaceEmbeddings:
+    """Get or create the embedding model (singleton)."""
+    global _embeddings
+    if _embeddings is None:
+        _embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
+    return _embeddings
+
+
+# --- PDF chunking (follows pdf_chunker.py pattern) ---
+
+def extract_and_chunk_pdf(pdf_path: str) -> list:
+    """Extract text from a PDF and chunk it.
+
+    Same approach as the Nemotron pipeline:
+    - PyMuPDF for text extraction
+    - RecursiveCharacterTextSplitter for chunking
+    - Metadata tagging with source_file
+    """
+    try:
+        text = ""
+        with fitz.open(pdf_path) as doc:
+            for page in doc:
+                text += page.get_text() + "\n"
+
+        if not text.strip():
+            return []
+
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=CHUNK_SIZE,
+            chunk_overlap=CHUNK_OVERLAP,
+            length_function=len,
+        )
+        chunks = text_splitter.create_documents([text])
+
+        for chunk in chunks:
+            chunk.metadata["source_file"] = os.path.basename(pdf_path)
+
+        return chunks
+    except Exception as e:
+        print(f"Error processing {pdf_path}: {e}")
+        return []
+
+
+# --- Vector Store Manager (follows vector_store.py pattern) ---
+
+class VectorStoreManager:
+    """Manages ChromaDB vector store with file-level dedup tracking."""
+
+    def __init__(self):
+        self.embeddings = get_embeddings()
+        self.vector_store: Optional[Chroma] = None
+        self.index_log_path = VECTOR_STORE_DIR / "indexed_files.json"
+        self.indexed_files = self._load_index_log()
+
+    def _load_index_log(self) -> dict:
+        if self.index_log_path.exists():
+            with open(self.index_log_path, "r") as f:
+                return json.load(f)
+        return {}
+
+    def _save_index_log(self):
+        self.index_log_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.index_log_path, "w") as f:
+            json.dump(self.indexed_files, f, indent=2)
+
+    def _file_hash(self, filepath: str) -> str:
+        hash_md5 = hashlib.md5()
+        with open(filepath, "rb") as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                hash_md5.update(chunk)
+        return hash_md5.hexdigest()
+
+    def is_file_indexed(self, pdf_path: str) -> bool:
+        filename = Path(pdf_path).name
+        if filename not in self.indexed_files:
+            return False
+        current_hash = self._file_hash(pdf_path)
+        return self.indexed_files[filename] == current_hash
+
+    def mark_file_indexed(self, pdf_path: str):
+        filename = Path(pdf_path).name
+        self.indexed_files[filename] = self._file_hash(pdf_path)
+        self._save_index_log()
+
+    def create_or_load(self) -> Chroma:
+        if self.vector_store is None:
+            self.vector_store = Chroma(
+                collection_name=COLLECTION_NAME,
+                embedding_function=self.embeddings,
+                persist_directory=str(VECTOR_STORE_DIR),
+            )
+        return self.vector_store
+
+    def add_documents(self, chunks: list, source_file: str | None = None, batch_size: int = 100) -> list:
+        if not self.vector_store:
+            self.create_or_load()
+
+        all_ids = []
+        for i in range(0, len(chunks), batch_size):
+            batch = chunks[i:i + batch_size]
+            ids = self.vector_store.add_documents(batch)
+            all_ids.extend(ids)
+
+        if source_file:
+            self.mark_file_indexed(source_file)
+
+        return all_ids
+
+    def similarity_search(self, query: str, k: int = TOP_K_RESULTS) -> list:
+        if not self.vector_store:
+            self.create_or_load()
+        return self.vector_store.similarity_search(query, k=k)
+
+    def get_collection_count(self) -> int:
+        if not self.vector_store:
+            self.create_or_load()
+        return self.vector_store._collection.count()
+
+    def delete_collection(self):
+        if self.vector_store:
+            self.vector_store.delete_collection()
+            self.vector_store = None
+        self.indexed_files = {}
+        self._save_index_log()
+
+    def list_indexed_files(self) -> list[str]:
+        return list(self.indexed_files.keys())
+
+
+# --- Module-level singleton ---
+
+_manager: Optional[VectorStoreManager] = None
+
+
+def get_manager() -> VectorStoreManager:
+    global _manager
+    if _manager is None:
+        _manager = VectorStoreManager()
+        _manager.create_or_load()
+    return _manager
+
+
+# --- High-level operations ---
+
+def index_papers(force: bool = False) -> dict:
+    """Index all PDFs in data/pdfs/ into ChromaDB.
+
+    Follows the Nemotron pipeline: hash each file, skip duplicates,
+    chunk new/changed files, embed and store.
+
+    Returns dict with indexing stats.
+    """
+    manager = get_manager()
+
+    pdf_files = list(PDF_DIR.glob("*.pdf"))
+    if not pdf_files:
+        return {"total_pdfs": 0, "indexed": 0, "skipped": 0, "chunks_added": 0}
+
+    indexed = 0
+    skipped = 0
+    total_chunks = 0
+
+    for pdf_path in pdf_files:
+        pdf_str = str(pdf_path)
+
+        # Hash-based duplicate check
+        if not force and manager.is_file_indexed(pdf_str):
+            skipped += 1
+            continue
+
+        chunks = extract_and_chunk_pdf(pdf_str)
+        if chunks:
+            manager.add_documents(chunks, source_file=pdf_str)
+            total_chunks += len(chunks)
+            indexed += 1
+        else:
+            skipped += 1
+
+    return {
+        "total_pdfs": len(pdf_files),
+        "indexed": indexed,
+        "skipped": skipped,
+        "chunks_added": total_chunks,
+    }
+
+
+def search(query: str, k: int = TOP_K_RESULTS) -> list[dict]:
+    """Semantic similarity search across indexed papers."""
+    manager = get_manager()
+    docs = manager.similarity_search(query, k=k)
+    return [
+        {
+            "content": doc.page_content,
+            "source_file": doc.metadata.get("source_file", "unknown"),
+            "metadata": doc.metadata,
+        }
+        for doc in docs
+    ]
+
+
+def chat(query: str, model: str = "nemotron-3-nano:latest", k: int = TOP_K_RESULTS) -> dict:
+    """RAG chat: retrieve context from knowledge base, generate answer with Ollama.
+
+    Follows the Nemotron retriever.py pattern:
+    - Similarity search for relevant chunks
+    - Build context string with source attribution
+    - Prompt Ollama with context + question
+    """
+    from langchain_ollama import OllamaLLM
+
+    manager = get_manager()
+    docs = manager.similarity_search(query, k=k)
+
+    if not docs:
+        return {
+            "answer": "No relevant documents found in the knowledge base.",
+            "sources": [],
+        }
+
+    # Build context from retrieved chunks
+    context = "\n\n".join([
+        f"[Source: {doc.metadata.get('source_file', 'unknown')}]\n{doc.page_content}"
+        for doc in docs
+    ])
+
+    prompt = f"""You are a technical documentation expert. Using the context provided below, give a comprehensive and detailed answer to the question.
+
+Instructions:
+- Provide a thorough explanation with relevant details
+- Include specific examples or technical specifications when available
+- Structure your response with clear paragraphs
+- If context is insufficient, explain what information is missing
+
+Context:
+{context}
+
+Question: {query}
+
+Answer:"""
+
+    llm = OllamaLLM(
+        model=model,
+        base_url="http://localhost:11434",
+        temperature=0.7,
+        num_predict=2048,
+    )
+
+    response = llm.invoke(prompt)
+
+    sources = list(set([
+        doc.metadata.get("source_file", "unknown") for doc in docs
+    ]))
+
+    return {
+        "answer": response.strip(),
+        "sources": sources,
+        "chunks_used": len(docs),
+    }
+
+
+def get_status() -> dict:
+    """Get knowledge base status: indexed file count, chunk count, etc."""
+    manager = get_manager()
+    return {
+        "collection_count": manager.get_collection_count(),
+        "indexed_files": manager.list_indexed_files(),
+        "indexed_file_count": len(manager.indexed_files),
+        "total_pdfs": len(list(PDF_DIR.glob("*.pdf"))),
+        "vector_store_dir": str(VECTOR_STORE_DIR),
+    }
+
+
+def reset():
+    """Delete the entire vector store and index log."""
+    global _manager
+    manager = get_manager()
+    manager.delete_collection()
+    _manager = None

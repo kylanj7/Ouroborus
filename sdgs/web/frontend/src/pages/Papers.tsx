@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { Search, ExternalLink, Download, ChevronLeft, ChevronRight, HardDrive, Sparkles, Plus } from 'lucide-react'
-import { getPapers, getPaperTopics, downloadPaperPdf, scrapePapers, PaperInfo } from '../api/client'
+import { Search, ExternalLink, Download, ChevronLeft, ChevronRight, HardDrive, Sparkles, Plus, Trash2 } from 'lucide-react'
+import { getPapers, getPaperTopics, downloadPaperPdf, scrapePapers, bulkDeletePapers, PaperInfo } from '../api/client'
+import { useToastStore } from '../store/toastStore'
 
 export default function Papers() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -80,9 +81,29 @@ export default function Papers() {
     })
   }
 
+  const addToast = useToastStore((s) => s.addToast)
+
   const handleGenerateFromSelected = () => {
     const ids = Array.from(selectedIds).join(',')
     navigate(`/create?from_papers=${ids}`)
+  }
+
+  const handleBulkDelete = async () => {
+    if (!confirm(`Delete ${selectedIds.size} selected paper(s)?`)) return
+    try {
+      const res = await bulkDeletePapers(Array.from(selectedIds))
+      addToast('success', `Deleted ${res.deleted} paper(s)`)
+      setSelectedIds(new Set())
+      setPage(1)
+      setLoading(true)
+      getPapers(1, search || undefined, datasetId, selectedTopic || undefined)
+        .then((r) => { setPapers(r.papers); setTotal(r.total) })
+        .catch(() => {})
+        .finally(() => setLoading(false))
+      getPaperTopics().then(setTopics).catch(() => {})
+    } catch {
+      addToast('error', 'Failed to delete papers')
+    }
   }
 
   const handleScrape = async () => {
@@ -91,6 +112,7 @@ export default function Papers() {
     setScrapeMsg('')
     try {
       const res = await scrapePapers(scrapeTopic.trim(), scrapeCount)
+      addToast('success', `Found ${res.searched} papers, saved ${res.saved} new`)
       setScrapeMsg(`Found ${res.searched} papers, saved ${res.saved} new`)
       setShowScrape(false)
       setScrapeTopic('')
@@ -120,10 +142,16 @@ export default function Papers() {
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
           {selectedIds.size > 0 && (
-            <button className="btn btn-primary" onClick={handleGenerateFromSelected}>
-              <Sparkles size={16} />
-              Generate from {selectedIds.size} Selected
-            </button>
+            <>
+              <button className="btn btn-primary" onClick={handleGenerateFromSelected}>
+                <Sparkles size={16} />
+                Generate from {selectedIds.size} Selected
+              </button>
+              <button className="btn btn-danger" onClick={handleBulkDelete}>
+                <Trash2 size={16} />
+                Delete {selectedIds.size}
+              </button>
+            </>
           )}
           <button className="btn btn-primary" onClick={() => setShowScrape(!showScrape)}>
             <Plus size={16} />

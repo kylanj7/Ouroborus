@@ -17,6 +17,8 @@ import MergeConvert from './pages/MergeConvert'
 import PushModel from './pages/PushModel'
 import Settings from './pages/Settings'
 import Loop from './pages/Loop'
+import Dashboard from './pages/Dashboard'
+import KnowledgeBase from './pages/KnowledgeBase'
 
 export default function App() {
   return (
@@ -29,7 +31,8 @@ export default function App() {
         {/* Protected routes */}
         <Route element={<AuthGuard />}>
           <Route element={<Layout />}>
-            <Route path="/" element={<Datasets />} />
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/datasets" element={<Datasets />} />
             <Route path="/create" element={<CreateDataset />} />
             <Route path="/datasets/:id" element={<DatasetDetail />} />
             <Route path="/papers" element={<Papers />} />
@@ -41,6 +44,7 @@ export default function App() {
             <Route path="/training/:id" element={<TrainingDetail />} />
             <Route path="/evaluations" element={<Evaluations />} />
             <Route path="/evaluations/:id" element={<EvaluationDetail />} />
+            <Route path="/knowledge" element={<KnowledgeBase />} />
             <Route path="/loop" element={<Loop />} />
             <Route path="/settings" element={<Settings />} />
           </Route>

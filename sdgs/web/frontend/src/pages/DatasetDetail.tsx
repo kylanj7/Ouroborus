@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { useDatasetStore } from '../store/datasetStore'
 import { useSSE } from '../hooks/useSSE'
 import { getDataset, cancelDataset, deleteQAPair, exportDataset, retryDataset } from '../api/client'
+import { useToastStore } from '../store/toastStore'
 import StatsCards from '../components/datasets/StatsCards'
 import HFPushModal from '../components/datasets/HFPushModal'
 
@@ -30,6 +31,7 @@ export default function DatasetDetail() {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [confirmRemoveQA, setConfirmRemoveQA] = useState<number | null>(null)
   const [showExportMenu, setShowExportMenu] = useState(false)
+  const addToast = useToastStore((s) => s.addToast)
   const logViewerRef = useRef<HTMLDivElement>(null)
 
   // SSE for running datasets
@@ -44,7 +46,14 @@ export default function DatasetDetail() {
   // Refresh dataset after SSE completes
   useEffect(() => {
     if (done) {
-      getDataset(datasetId).then(updateDataset).catch(() => {})
+      getDataset(datasetId).then((ds) => {
+        updateDataset(ds)
+        if (ds.status === 'completed') {
+          addToast('success', `Dataset "${ds.topic}" completed with ${ds.actual_size} pairs`)
+        } else if (ds.status === 'failed') {
+          addToast('error', `Dataset "${ds.topic}" failed`)
+        }
+      }).catch(() => {})
       fetchSamples(datasetId)
     }
   }, [done, datasetId])
@@ -192,7 +201,7 @@ export default function DatasetDetail() {
                   style={{ padding: '4px 10px', fontSize: '12px' }}
                   onClick={async () => {
                     await deleteDataset(datasetId)
-                    navigate('/')
+                    navigate('/datasets')
                   }}
                 >
                   Yes

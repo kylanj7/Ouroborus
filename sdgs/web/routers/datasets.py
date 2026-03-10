@@ -193,6 +193,88 @@ def create_batch_datasets(
     return results
 
 
+@router.get("/stats")
+def get_aggregate_stats(
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Aggregate token usage, costs, and counts across all user datasets."""
+    from sqlalchemy import func
+    from ..db.models import Paper, TrainingRun
+
+    ds_stats = db.query(
+        func.count(Dataset.id),
+        func.sum(Dataset.prompt_tokens),
+        func.sum(Dataset.completion_tokens),
+        func.sum(Dataset.total_tokens),
+        func.sum(Dataset.gpu_kwh),
+        func.sum(Dataset.actual_size),
+        func.sum(Dataset.duration_seconds),
+    ).filter(Dataset.user_id == current_user.id).first()
+
+    paper_count = db.query(func.count(Paper.id)).filter(
+        Paper.user_id == current_user.id,
+    ).scalar() or 0
+
+    training_count = db.query(func.count(TrainingRun.id)).filter(
+        TrainingRun.user_id == current_user.id,
+    ).scalar() or 0
+
+    completed_datasets = db.query(func.count(Dataset.id)).filter(
+        Dataset.user_id == current_user.id,
+        Dataset.status == "completed",
+    ).scalar() or 0
+
+    failed_datasets = db.query(func.count(Dataset.id)).filter(
+        Dataset.user_id == current_user.id,
+        Dataset.status == "failed",
+    ).scalar() or 0
+
+    running_datasets = db.query(func.count(Dataset.id)).filter(
+        Dataset.user_id == current_user.id,
+        Dataset.status.in_(["pending", "running"]),
+    ).scalar() or 0
+
+    # Per-dataset token breakdown for chart
+    per_dataset = db.query(
+        Dataset.topic,
+        Dataset.total_tokens,
+        Dataset.prompt_tokens,
+        Dataset.completion_tokens,
+        Dataset.actual_size,
+        Dataset.created_at,
+    ).filter(
+        Dataset.user_id == current_user.id,
+        Dataset.status == "completed",
+    ).order_by(Dataset.created_at).all()
+
+    return {
+        "dataset_count": ds_stats[0] or 0,
+        "completed_datasets": completed_datasets,
+        "failed_datasets": failed_datasets,
+        "running_datasets": running_datasets,
+        "paper_count": paper_count,
+        "training_count": training_count,
+        "total_prompt_tokens": ds_stats[1] or 0,
+        "total_completion_tokens": ds_stats[2] or 0,
+        "total_tokens": ds_stats[3] or 0,
+        "total_gpu_kwh": round(ds_stats[4] or 0, 4),
+        "total_qa_pairs": ds_stats[5] or 0,
+        "total_generation_seconds": round(ds_stats[6] or 0, 1),
+        "per_dataset": [
+            {
+                "topic": d[0],
+                "total_tokens": d[1] or 0,
+                "prompt_tokens": d[2] or 0,
+                "completion_tokens": d[3] or 0,
+                "qa_pairs": d[4] or 0,
+                "created_at": d[5].isoformat() if d[5] else None,
+            }
+            for d in per_dataset
+        ],
+    }
+
+
 @router.get("", response_model=DatasetListResponse)
 def list_datasets(
     page: int = Query(1, ge=1),

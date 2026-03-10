@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { StopCircle, FlaskConical, SlidersHorizontal, ChevronDown, ChevronRight } from 'lucide-react'
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { useTrainingStore } from '../store/trainingStore'
-import { useTrainingSSE } from '../hooks/useTrainingSSE'
+import { useTrainingSSE, MetricPoint } from '../hooks/useTrainingSSE'
 import { cancelTraining, getTrainingRun, updateKnobs } from '../api/client'
+import { useToastStore } from '../store/toastStore'
 
 const statusClass: Record<string, string> = {
   pending: 'badge-pending',
@@ -112,15 +114,24 @@ export default function TrainingDetail() {
   const logViewerRef = useRef<HTMLDivElement>(null)
 
   const isRunning = currentRun?.status === 'pending' || currentRun?.status === 'running'
-  const { logs, status: sseStatus, done } = useTrainingSSE(isRunning ? runId : null)
+  const { logs, metrics, status: sseStatus, done } = useTrainingSSE(isRunning ? runId : null)
 
   useEffect(() => {
     fetchTrainingRun(runId)
   }, [runId])
 
+  const addToast = useToastStore((s) => s.addToast)
+
   useEffect(() => {
     if (done) {
-      getTrainingRun(runId).then(updateTrainingRun).catch(() => {})
+      getTrainingRun(runId).then((run) => {
+        updateTrainingRun(run)
+        if (run.status === 'completed') {
+          addToast('success', `Training "${run.run_name}" completed`)
+        } else if (run.status === 'failed') {
+          addToast('error', `Training "${run.run_name}" failed`)
+        }
+      }).catch(() => {})
     }
   }, [done, runId])
 
@@ -235,6 +246,48 @@ export default function TrainingDetail() {
 
       {/* Live knobs */}
       {currentRun.status === 'running' && <KnobsPanel runId={runId} />}
+
+      {/* Training metrics charts */}
+      {metrics.length > 1 && (
+        <div className="card" style={{ marginBottom: '16px' }}>
+          <h3 style={{ fontSize: '14px', fontWeight: 500, marginBottom: '12px' }}>Training Metrics</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            {/* Loss chart */}
+            <div>
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px' }}>Loss</div>
+              <ResponsiveContainer width="100%" height={200}>
+                <LineChart data={metrics.filter((m) => m.loss != null)}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
+                  <XAxis dataKey="step" tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
+                  <YAxis tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
+                  <Tooltip
+                    contentStyle={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-primary)', fontSize: '12px' }}
+                    labelStyle={{ color: 'var(--text-secondary)' }}
+                  />
+                  <Line type="monotone" dataKey="loss" stroke="var(--accent-primary)" dot={false} strokeWidth={1.5} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+            {/* Learning rate chart */}
+            <div>
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px' }}>Learning Rate</div>
+              <ResponsiveContainer width="100%" height={200}>
+                <LineChart data={metrics.filter((m) => m.learning_rate != null)}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
+                  <XAxis dataKey="step" tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
+                  <YAxis tick={{ fontSize: 11, fill: 'var(--text-muted)' }} tickFormatter={(v) => v.toExponential(1)} />
+                  <Tooltip
+                    contentStyle={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-primary)', fontSize: '12px' }}
+                    labelStyle={{ color: 'var(--text-secondary)' }}
+                    formatter={(v: number) => v.toExponential(3)}
+                  />
+                  <Line type="monotone" dataKey="learning_rate" stroke="var(--accent-blue)" dot={false} strokeWidth={1.5} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Live SSE log */}
       {isRunning && (

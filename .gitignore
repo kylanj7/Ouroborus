@@ -12,6 +12,7 @@ data/*.json
 data/*.jsonl
 data/pdfs/
 data/training/
+data/vectorstore/
 !data/.gitkeep
 *.jsonl
 node_modules/

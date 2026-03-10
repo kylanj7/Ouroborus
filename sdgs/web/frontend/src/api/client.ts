@@ -114,6 +114,32 @@ export const createBatchDatasets = (datasets: CreateDatasetRequest[]) =>
 export const getDatasets = (page = 1) =>
   request<DatasetListResponse>(`/datasets?page=${page}`)
 
+export interface AggregateStats {
+  dataset_count: number
+  completed_datasets: number
+  failed_datasets: number
+  running_datasets: number
+  paper_count: number
+  training_count: number
+  total_prompt_tokens: number
+  total_completion_tokens: number
+  total_tokens: number
+  total_gpu_kwh: number
+  total_qa_pairs: number
+  total_generation_seconds: number
+  per_dataset: {
+    topic: string
+    total_tokens: number
+    prompt_tokens: number
+    completion_tokens: number
+    qa_pairs: number
+    created_at: string | null
+  }[]
+}
+
+export const getAggregateStats = () =>
+  request<AggregateStats>('/datasets/stats')
+
 export const getDataset = (id: number) =>
   request<Dataset>(`/datasets/${id}`)
 
@@ -307,6 +333,15 @@ export interface PaperListResponse {
   page: number
   per_page: number
 }
+
+export const deletePaper = (id: number) =>
+  request<{ status: string }>(`/papers/${id}`, { method: 'DELETE' })
+
+export const bulkDeletePapers = (paper_ids: number[]) =>
+  request<{ deleted: number }>('/papers/bulk-delete', {
+    method: 'POST',
+    body: JSON.stringify({ paper_ids }),
+  })
 
 export const getPapers = (page = 1, search?: string, datasetId?: number, topic?: string) => {
   const params = new URLSearchParams({ page: String(page), per_page: '50' })
@@ -669,6 +704,59 @@ export const pushModel = (data: PushModelRequest) =>
     method: 'POST',
     body: JSON.stringify(data),
   })
+
+// Knowledge Base
+export interface KBStatus {
+  collection_count: number
+  indexed_files: string[]
+  indexed_file_count: number
+  total_pdfs: number
+  vector_store_dir: string
+}
+
+export interface KBSearchResult {
+  content: string
+  source_file: string
+  metadata: Record<string, unknown>
+}
+
+export interface KBSearchResponse {
+  results: KBSearchResult[]
+  count: number
+}
+
+export interface KBChatResponse {
+  answer: string
+  sources: string[]
+  chunks_used: number
+}
+
+export interface KBIndexResponse {
+  total_pdfs: number
+  indexed: number
+  skipped: number
+  chunks_added: number
+}
+
+export const getKBStatus = () => request<KBStatus>('/knowledge/status')
+
+export const indexKB = (force = false) =>
+  request<KBIndexResponse>('/knowledge/index', {
+    method: 'POST',
+    body: JSON.stringify({ force }),
+  })
+
+export const searchKB = (q: string, k = 5) =>
+  request<KBSearchResponse>(`/knowledge/search?q=${encodeURIComponent(q)}&k=${k}`)
+
+export const chatKB = (query: string, model = 'nemotron-3-nano:latest', k = 5) =>
+  request<KBChatResponse>('/knowledge/chat', {
+    method: 'POST',
+    body: JSON.stringify({ query, model, k }),
+  })
+
+export const resetKB = () =>
+  request<{ status: string }>('/knowledge/reset', { method: 'POST' })
 
 // Health
 export const getHealth = () => request<{ status: string }>('/health')

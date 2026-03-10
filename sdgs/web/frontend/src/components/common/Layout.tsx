@@ -1,5 +1,6 @@
 import { Outlet } from 'react-router-dom'
 import Sidebar from './Sidebar'
+import ToastContainer from './ToastContainer'
 
 export default function Layout() {
   return (
@@ -8,6 +9,7 @@ export default function Layout() {
       <main className="main-content">
         <Outlet />
       </main>
+      <ToastContainer />
     </div>
   )
 }
