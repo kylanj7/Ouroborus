@@ -10,6 +10,7 @@ from ..schemas import (
     ApiKeyInfo, SaveApiKeyRequest,
     HFTokenStatus, SaveHFTokenRequest,
     S2TokenStatus, SaveS2TokenRequest,
+    CoreTokenStatus, SaveCoreTokenRequest,
 )
 
 router = APIRouter()
@@ -163,5 +164,42 @@ def delete_s2_token(
 ):
     user = db.query(User).filter(User.id == current_user.id).first()
     user.s2_token = None
+    db.commit()
+    return {"status": "ok"}
+
+
+# --- CORE API Key ---
+
+@router.get("/core-token", response_model=CoreTokenStatus)
+def get_core_token_status(
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    user = db.query(User).filter(User.id == current_user.id).first()
+    return CoreTokenStatus(configured=bool(user and user.core_token))
+
+
+@router.put("/core-token")
+def save_core_token(
+    req: SaveCoreTokenRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not current_user.encryption_key:
+        raise HTTPException(400, "Re-login required for key operations")
+
+    user = db.query(User).filter(User.id == current_user.id).first()
+    user.core_token = encrypt_value(req.token, current_user.encryption_key)
+    db.commit()
+    return {"status": "ok"}
+
+
+@router.delete("/core-token")
+def delete_core_token(
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    user = db.query(User).filter(User.id == current_user.id).first()
+    user.core_token = None
     db.commit()
     return {"status": "ok"}

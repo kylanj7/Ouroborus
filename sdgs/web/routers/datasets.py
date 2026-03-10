@@ -83,8 +83,9 @@ def create_dataset(
     # Resolve API key
     api_key = _resolve_api_key(req.provider, current_user, db)
 
-    # Resolve Semantic Scholar API key
+    # Resolve scholarly API keys
     s2_api_key = None
+    core_api_key = None
     if current_user.encryption_key:
         user = db.query(User).filter(User.id == current_user.id).first()
         if user and user.s2_token:
@@ -92,8 +93,15 @@ def create_dataset(
                 s2_api_key = decrypt_value(user.s2_token, current_user.encryption_key)
             except Exception:
                 pass
+        if user and user.core_token:
+            try:
+                core_api_key = decrypt_value(user.core_token, current_user.encryption_key)
+            except Exception:
+                pass
     if not s2_api_key:
         s2_api_key = os.environ.get("S2_API_KEY")
+    if not core_api_key:
+        core_api_key = os.environ.get("CORE_API_KEY")
 
     # Submit pipeline to background executor
     pipeline_kwargs = dict(
@@ -106,6 +114,7 @@ def create_dataset(
         system_prompt=req.system_prompt,
         temperature=req.temperature,
         s2_api_key=s2_api_key,
+        core_api_key=core_api_key,
         max_tokens=req.max_tokens,
     )
     submit_job(ds.id, run_dataset_pipeline, **pipeline_kwargs)
@@ -144,6 +153,7 @@ def create_batch_datasets(
         api_key = _resolve_api_key(item.provider, current_user, db)
 
         s2_api_key = None
+        core_api_key = None
         if current_user.encryption_key:
             user = db.query(User).filter(User.id == current_user.id).first()
             if user and user.s2_token:
@@ -151,8 +161,15 @@ def create_batch_datasets(
                     s2_api_key = decrypt_value(user.s2_token, current_user.encryption_key)
                 except Exception:
                     pass
+            if user and user.core_token:
+                try:
+                    core_api_key = decrypt_value(user.core_token, current_user.encryption_key)
+                except Exception:
+                    pass
         if not s2_api_key:
             s2_api_key = os.environ.get("S2_API_KEY")
+        if not core_api_key:
+            core_api_key = os.environ.get("CORE_API_KEY")
 
         pipeline_kwargs = dict(
             dataset_id=ds.id,
@@ -164,6 +181,7 @@ def create_batch_datasets(
             system_prompt=item.system_prompt,
             temperature=item.temperature,
             s2_api_key=s2_api_key,
+            core_api_key=core_api_key,
             max_tokens=item.max_tokens,
         )
         submit_job(ds.id, run_dataset_pipeline, **pipeline_kwargs)

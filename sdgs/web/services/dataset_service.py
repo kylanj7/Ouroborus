@@ -31,6 +31,7 @@ def run_dataset_pipeline(
     system_prompt: str | None,
     temperature: float,
     s2_api_key: str | None = None,
+    core_api_key: str | None = None,
     max_tokens: int | None = None,
     cancel_event=None,
 ):
@@ -65,6 +66,7 @@ def run_dataset_pipeline(
         max_tokens=max_tokens,
         cancel_event=cancel_event,
         s2_api_key=s2_api_key,
+        core_api_key=core_api_key,
     )
 
     # 4. Auto-filter the output

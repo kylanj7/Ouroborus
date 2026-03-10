@@ -4,6 +4,7 @@ import {
   getProviders, getApiKeys, saveApiKey, deleteApiKey,
   getHFTokenStatus, saveHFToken, deleteHFToken,
   getS2TokenStatus, saveS2Token, deleteS2Token,
+  getCoreTokenStatus, saveCoreToken, deleteCoreToken,
   ProviderInfo, ApiKeyInfo,
 } from '../api/client'
 
@@ -18,21 +19,26 @@ export default function Settings() {
   const [s2Configured, setS2Configured] = useState(false)
   const [editingS2, setEditingS2] = useState(false)
   const [s2Token, setS2Token] = useState('')
+  const [coreConfigured, setCoreConfigured] = useState(false)
+  const [editingCore, setEditingCore] = useState(false)
+  const [coreToken, setCoreToken] = useState('')
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
 
   const refresh = async () => {
     try {
-      const [p, k, hf, s2] = await Promise.all([
+      const [p, k, hf, s2, core] = await Promise.all([
         getProviders(),
         getApiKeys(),
         getHFTokenStatus(),
         getS2TokenStatus(),
+        getCoreTokenStatus(),
       ])
       setProviders(p)
       setApiKeys(k)
       setHfConfigured(hf.configured)
       setS2Configured(s2.configured)
+      setCoreConfigured(core.configured)
     } catch {
       // ignore
     }
@@ -122,6 +128,34 @@ export default function Settings() {
       await refresh()
     } catch {
       setMessage('Failed to remove Semantic Scholar API key')
+    }
+    setSaving(false)
+  }
+
+  const handleSaveCoreToken = async () => {
+    if (!coreToken.trim()) return
+    setSaving(true)
+    setMessage('')
+    try {
+      await saveCoreToken(coreToken.trim())
+      setEditingCore(false)
+      setCoreToken('')
+      setMessage('CORE API key saved')
+      await refresh()
+    } catch {
+      setMessage('Failed to save CORE API key')
+    }
+    setSaving(false)
+  }
+
+  const handleDeleteCoreToken = async () => {
+    setSaving(true)
+    try {
+      await deleteCoreToken()
+      setMessage('CORE API key removed')
+      await refresh()
+    } catch {
+      setMessage('Failed to remove CORE API key')
     }
     setSaving(false)
   }
@@ -346,6 +380,61 @@ export default function Settings() {
             </button>
             {editingS2 && (
               <button className="btn" onClick={() => setEditingS2(false)}>
+                Cancel
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* CORE API Key */}
+      <div className="card" style={{ marginTop: '20px' }}>
+        <h2 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '16px' }}>
+          CORE API Key
+        </h2>
+        <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+          Access 300M+ open access papers via CORE. Get your key from{' '}
+          <a href="https://core.ac.uk/services/api" target="_blank" rel="noopener noreferrer">
+            core.ac.uk/services/api
+          </a>
+        </p>
+
+        {coreConfigured && !editingCore ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{ fontSize: '13px', color: 'var(--accent-green)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <Check size={14} /> API key configured
+            </span>
+            <button className="btn" style={{ padding: '4px 8px' }} onClick={() => setEditingCore(true)}>
+              Update
+            </button>
+            <button
+              className="btn btn-danger"
+              style={{ padding: '4px 8px' }}
+              onClick={handleDeleteCoreToken}
+              disabled={saving}
+            >
+              <Trash2 size={14} /> Remove
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <input
+              type="password"
+              placeholder="Enter CORE API key"
+              value={coreToken}
+              onChange={(e) => setCoreToken(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSaveCoreToken()}
+              autoFocus={editingCore}
+            />
+            <button
+              className="btn btn-primary"
+              onClick={handleSaveCoreToken}
+              disabled={saving || !coreToken.trim()}
+            >
+              Save
+            </button>
+            {editingCore && (
+              <button className="btn" onClick={() => setEditingCore(false)}>
                 Cancel
               </button>
             )}

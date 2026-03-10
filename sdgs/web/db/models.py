@@ -18,6 +18,7 @@ class User(Base):
     encryption_key_salt = Column(String(64), nullable=False)  # hex-encoded
     hf_token = Column(Text, nullable=True)  # encrypted
     s2_token = Column(Text, nullable=True)  # encrypted Semantic Scholar API key
+    core_token = Column(Text, nullable=True)  # encrypted CORE API key
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     datasets = relationship("Dataset", back_populates="user", cascade="all, delete-orphan")

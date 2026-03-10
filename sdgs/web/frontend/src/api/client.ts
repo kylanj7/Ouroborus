@@ -246,6 +246,22 @@ export const saveS2Token = (token: string) =>
 export const deleteS2Token = () =>
   request<{ status: string }>('/settings/s2-token', { method: 'DELETE' })
 
+// Settings - CORE API Key
+export interface CoreTokenStatus {
+  configured: boolean
+}
+
+export const getCoreTokenStatus = () => request<CoreTokenStatus>('/settings/core-token')
+
+export const saveCoreToken = (token: string) =>
+  request<{ status: string }>('/settings/core-token', {
+    method: 'PUT',
+    body: JSON.stringify({ token }),
+  })
+
+export const deleteCoreToken = () =>
+  request<{ status: string }>('/settings/core-token', { method: 'DELETE' })
+
 // Papers
 export interface PaperInfo {
   id: number

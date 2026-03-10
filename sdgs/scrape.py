@@ -172,33 +172,163 @@ def _search_semantic_scholar(topic: str, max_results: int, s2_api_key: str | Non
     return papers
 
 
-def search_papers(topic: str, max_results: int = 20, s2_api_key: str | None = None) -> list[dict]:
-    """Search arXiv + Semantic Scholar, deduplicate, return merged results.
+def _search_openalex(topic: str, max_results: int) -> list[dict]:
+    """Search OpenAlex API (free, no key required) and return paper metadata dicts."""
+    papers = []
+    try:
+        _rate_limit("openalex", 0.1)
+        url = "https://api.openalex.org/works"
+        params = {
+            "search": topic,
+            "per_page": min(max_results, 200),
+            "sort": "cited_by_count:desc",
+            "mailto": "ouroboros@localhost",
+        }
+        resp = _get_session().get(url, params=params, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+
+        for item in data.get("results", []):
+            doi = item.get("doi", "")
+            if doi and doi.startswith("https://doi.org/"):
+                doi = doi.removeprefix("https://doi.org/")
+
+            # Extract abstract from inverted index if available
+            abstract = ""
+            abstract_idx = item.get("abstract_inverted_index")
+            if abstract_idx:
+                word_positions = []
+                for word, positions in abstract_idx.items():
+                    for pos in positions:
+                        word_positions.append((pos, word))
+                word_positions.sort()
+                abstract = " ".join(w for _, w in word_positions)
+
+            # Get best OA PDF URL
+            pdf_url = None
+            best_oa = item.get("best_oa_location") or {}
+            if best_oa.get("pdf_url"):
+                pdf_url = best_oa["pdf_url"]
+            elif item.get("primary_location", {}).get("pdf_url"):
+                pdf_url = item["primary_location"]["pdf_url"]
+
+            authors = []
+            for authorship in (item.get("authorships") or []):
+                name = authorship.get("author", {}).get("display_name")
+                if name:
+                    authors.append(name)
+
+            paper_id = f"doi:{doi}" if doi else f"openalex:{item.get('id', '').split('/')[-1]}"
+
+            papers.append({
+                "paper_id": paper_id,
+                "title": item.get("display_name") or item.get("title") or "",
+                "authors": authors,
+                "abstract": abstract,
+                "year": item.get("publication_year"),
+                "doi": doi or None,
+                "url": item.get("doi") or item.get("id", ""),
+                "pdf_url": pdf_url,
+                "source": "openalex",
+                "citation_count": item.get("cited_by_count", 0) or 0,
+                "full_text": None,
+            })
+    except Exception as e:
+        print(f"  OpenAlex search error: {e}")
+    return papers
+
+
+def _search_core(topic: str, max_results: int, core_api_key: str | None = None) -> list[dict]:
+    """Search CORE API (requires API key) and return paper metadata dicts."""
+    key = core_api_key or os.environ.get("CORE_API_KEY")
+    if not key:
+        return []
+
+    papers = []
+    try:
+        _rate_limit("core", 0.2)
+        url = "https://api.core.ac.uk/v3/search/works"
+        params = {
+            "q": topic,
+            "limit": min(max_results, 100),
+        }
+        headers = {"Authorization": f"Bearer {key}"}
+        resp = _get_session().get(url, params=params, headers=headers, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+
+        for item in data.get("results", []):
+            doi = item.get("doi") or ""
+            if doi.startswith("https://doi.org/"):
+                doi = doi.removeprefix("https://doi.org/")
+
+            pdf_url = item.get("downloadUrl") or item.get("sourceFulltextUrls", [None])[0] if item.get("sourceFulltextUrls") else None
+
+            authors = []
+            for author in (item.get("authors") or []):
+                name = author.get("name") if isinstance(author, dict) else str(author)
+                if name:
+                    authors.append(name)
+
+            paper_id = f"doi:{doi}" if doi else f"core:{item.get('id', 'unknown')}"
+
+            papers.append({
+                "paper_id": paper_id,
+                "title": item.get("title") or "",
+                "authors": authors,
+                "abstract": item.get("abstract") or "",
+                "year": item.get("yearPublished"),
+                "doi": doi or None,
+                "url": item.get("downloadUrl") or item.get("links", [{}])[0].get("url", "") if item.get("links") else "",
+                "pdf_url": pdf_url,
+                "source": "core",
+                "citation_count": item.get("citationCount", 0) or 0,
+                "full_text": item.get("fullText") or None,
+            })
+    except Exception as e:
+        print(f"  CORE search error: {e}")
+    return papers
+
+
+def search_papers(
+    topic: str,
+    max_results: int = 20,
+    s2_api_key: str | None = None,
+    core_api_key: str | None = None,
+) -> list[dict]:
+    """Search arXiv + Semantic Scholar + OpenAlex + CORE, deduplicate, return merged results.
 
     Args:
         topic: Research topic query string.
         max_results: Max papers to return total.
-        s2_api_key: Optional Semantic Scholar API key (avoids env var race).
+        s2_api_key: Optional Semantic Scholar API key.
+        core_api_key: Optional CORE API key.
 
     Returns:
         List of paper metadata dicts, deduplicated by paper_id.
     """
     print(f"Searching for papers on: {topic}")
 
-    # Search both sources
+    # Search all sources
     arxiv_papers = _search_arxiv(topic, max_results)
     print(f"  arXiv: {len(arxiv_papers)} results")
 
     s2_papers = _search_semantic_scholar(topic, max_results, s2_api_key=s2_api_key)
     print(f"  Semantic Scholar: {len(s2_papers)} results")
 
-    # Deduplicate — prefer arXiv entries (they have direct PDF URLs)
+    openalex_papers = _search_openalex(topic, max_results)
+    print(f"  OpenAlex: {len(openalex_papers)} results")
+
+    core_papers = _search_core(topic, max_results, core_api_key=core_api_key)
+    print(f"  CORE: {len(core_papers)} results")
+
+    # Deduplicate -- prefer arXiv entries (they have direct PDF URLs)
     seen_ids = set()
     seen_titles = set()
     merged = []
     skipped_lang = 0
 
-    for paper in arxiv_papers + s2_papers:
+    for paper in arxiv_papers + s2_papers + openalex_papers + core_papers:
         pid = paper["paper_id"]
         title_key = paper["title"].lower().strip()
 
@@ -655,10 +785,11 @@ def run_scrape(
     max_tokens: int | None = None,
     cancel_event=None,
     s2_api_key: str | None = None,
+    core_api_key: str | None = None,
 ):
     """Orchestrate the full scrape pipeline.
 
-    1. Search for papers
+    1. Search for papers (arXiv + Semantic Scholar + OpenAlex + CORE)
     2. Rank by citation count
     3. Fetch full text for top N
     4. Generate Q&A pairs via LLM
@@ -676,7 +807,7 @@ def run_scrape(
         collect_only: If True, just save paper metadata.
     """
     # ── Step 1: Search ──
-    papers = search_papers(topic, max_results=max_papers, s2_api_key=s2_api_key)
+    papers = search_papers(topic, max_results=max_papers, s2_api_key=s2_api_key, core_api_key=core_api_key)
 
     if not papers:
         raise RuntimeError(f"No papers found for topic '{topic}'. APIs may be rate-limited — check arXiv and Semantic Scholar access.")
@@ -708,15 +839,19 @@ def run_scrape(
             print(f"  [{i+1}/{top_n}] Abstract only: {paper['title'][:50]}...")
 
     print(f"\nFull text obtained for {full_text_count}/{top_n} papers")
-    abstract_count = sum(1 for p in papers if p.get("abstract") and not p.get("full_text"))
-    if abstract_count:
-        print(f"Skipping {abstract_count} abstract-only papers (full text required)")
+    # Prefer full-text papers, fall back to abstract-only if none have full text
+    papers_with_full_text = [p for p in papers if p.get("full_text")]
+    papers_with_abstract = [p for p in papers if p.get("abstract") and not p.get("full_text")]
+    print(f"Papers with full text: {len(papers_with_full_text)}, abstract-only: {len(papers_with_abstract)}")
 
-    # Only use papers with full text — abstracts are too shallow for quality Q&A
-    papers_with_content = [p for p in papers if p.get("full_text")]
-    print(f"Papers with full text: {len(papers_with_content)}")
-
-    if not papers_with_content:
+    if papers_with_full_text:
+        papers_with_content = papers_with_full_text
+    elif papers_with_abstract:
+        print("No full text available -- falling back to abstract-only papers")
+        for p in papers_with_abstract:
+            p["full_text"] = p["abstract"]
+        papers_with_content = papers_with_abstract
+    else:
         raise RuntimeError("No papers with extractable content (no abstracts or full text available).")
 
     # ── Step 3: Setup LLM client ──

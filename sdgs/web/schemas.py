@@ -171,6 +171,14 @@ class SaveS2TokenRequest(BaseModel):
     token: str
 
 
+class CoreTokenStatus(BaseModel):
+    configured: bool
+
+
+class SaveCoreTokenRequest(BaseModel):
+    token: str
+
+
 # --- HuggingFace push ---
 
 class HFPushRequest(BaseModel):

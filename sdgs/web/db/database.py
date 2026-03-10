@@ -38,6 +38,11 @@ def _migrate(eng):
         if "correction_json" not in columns:
             with eng.begin() as conn:
                 conn.execute(text("ALTER TABLE evaluation_runs ADD COLUMN correction_json JSON"))
+    if insp.has_table("users"):
+        columns = {c["name"] for c in insp.get_columns("users")}
+        if "core_token" not in columns:
+            with eng.begin() as conn:
+                conn.execute(text("ALTER TABLE users ADD COLUMN core_token TEXT"))
 
 
 def _enable_wal(eng):
