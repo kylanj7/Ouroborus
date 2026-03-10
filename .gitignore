@@ -10,6 +10,8 @@ build/
 venv/
 data/*.json
 data/*.jsonl
+data/pdfs/
+data/training/
 !data/.gitkeep
 *.jsonl
 node_modules/

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Cpu, Plus, Trash2 } from 'lucide-react'
+import { Cpu, Plus, Trash2, RotateCcw } from 'lucide-react'
 import { useTrainingStore } from '../store/trainingStore'
-import { deleteTrainingRun } from '../api/client'
+import { deleteTrainingRun, retryTrainingRun } from '../api/client'
 
 const statusClass: Record<string, string> = {
   pending: 'badge-pending',
@@ -40,6 +40,16 @@ export default function Training() {
       alert(String(err))
     } finally {
       setDeleting(null)
+    }
+  }
+
+  const handleRetry = async (e: React.MouseEvent, runId: number) => {
+    e.stopPropagation()
+    try {
+      const newRun = await retryTrainingRun(runId)
+      navigate(`/training/${newRun.id}`)
+    } catch (err) {
+      alert(String(err))
     }
   }
 
@@ -107,6 +117,16 @@ export default function Training() {
                     <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
                       {run.created_at && new Date(run.created_at).toLocaleDateString()}
                     </span>
+                    {(run.status === 'failed' || run.status === 'cancelled') && (
+                      <button
+                        className="btn"
+                        onClick={(e) => handleRetry(e, run.id)}
+                        title="Retry run"
+                        style={{ padding: '4px 8px', color: 'var(--accent-green)' }}
+                      >
+                        <RotateCcw size={14} />
+                      </button>
+                    )}
                     {run.status !== 'running' && run.status !== 'pending' && (
                       <button
                         className="btn btn-danger"

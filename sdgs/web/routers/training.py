@@ -554,6 +554,75 @@ def cancel_training(
 # DELETE /{run_id} — Delete training run
 # -------------------------------------------------------------------------
 
+@router.post("/{run_id}/retry", response_model=TrainingRunResponse)
+def retry_training_run(
+    run_id: int,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Retry a failed/cancelled training run with the same parameters."""
+    old_run = db.query(TrainingRun).filter(
+        TrainingRun.id == run_id,
+        TrainingRun.user_id == current_user.id,
+    ).first()
+    if not old_run:
+        raise HTTPException(404, "Training run not found")
+    if old_run.status not in ("failed", "cancelled"):
+        raise HTTPException(400, "Only failed or cancelled runs can be retried")
+
+    # Create a new run with same params
+    ts = datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    run = TrainingRun(
+        user_id=current_user.id,
+        dataset_id=old_run.dataset_id,
+        run_name=f"retry-{ts}",
+        status="pending",
+        base_model=old_run.base_model,
+        model_size=old_run.model_size,
+        lora_rank=old_run.lora_rank,
+        lora_alpha=old_run.lora_alpha,
+        learning_rate=old_run.learning_rate,
+        num_epochs=old_run.num_epochs,
+        batch_size=old_run.batch_size,
+        gradient_accumulation_steps=old_run.gradient_accumulation_steps,
+        max_steps=old_run.max_steps,
+        dataset_path=old_run.dataset_path,
+    )
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+
+    model_config = {
+        "model_name": run.base_model,
+        "size": run.model_size,
+        "lora": {"r": run.lora_rank, "lora_alpha": run.lora_alpha},
+    }
+    training_config = {
+        "learning_rate": run.learning_rate,
+        "num_train_epochs": run.num_epochs,
+        "per_device_train_batch_size": run.batch_size,
+        "gradient_accumulation_steps": run.gradient_accumulation_steps,
+        "max_steps": run.max_steps,
+    }
+
+    from ..engine.training_service import train_with_metrics
+
+    _dataset_path = run.dataset_path
+
+    def _run(cancel_event=None):
+        return train_with_metrics(
+            run_id=run.id,
+            dataset_path=_dataset_path,
+            model_config=model_config,
+            training_config=training_config,
+            cancel_event=cancel_event,
+        )
+
+    submit_training_job(run.id, _run, model_class="TrainingRun")
+
+    return run
+
+
 @router.delete("/{run_id}")
 def delete_training_run(
     run_id: int,

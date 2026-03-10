@@ -1,9 +1,12 @@
-"""Dataset API: CRUD, pipeline execution, samples, HuggingFace push."""
+"""Dataset API: CRUD, pipeline execution, samples, HuggingFace push, export."""
+import io
+import json
 import os
 import re
 import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from ..auth import decrypt_value
@@ -470,6 +473,137 @@ def get_dataset_samples(
         page=page,
         per_page=per_page,
     )
+
+
+@router.get("/{dataset_id}/export")
+def export_dataset(
+    dataset_id: int,
+    fmt: str = Query("jsonl", pattern="^(jsonl|csv)$"),
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Download dataset as JSONL or CSV."""
+    ds = db.query(Dataset).filter(
+        Dataset.id == dataset_id,
+        Dataset.user_id == current_user.id,
+    ).first()
+    if not ds:
+        raise HTTPException(404, "Dataset not found")
+
+    pairs = db.query(QAPair).filter(QAPair.dataset_id == dataset_id).all()
+    if not pairs:
+        raise HTTPException(400, "Dataset has no Q&A pairs")
+
+    safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', ds.topic)[:60]
+
+    if fmt == "csv":
+        import csv
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["instruction", "output", "is_valid", "was_healed", "source_title"])
+        for qa in pairs:
+            writer.writerow([qa.instruction, qa.output, qa.is_valid, qa.was_healed, qa.source_title or ""])
+        content = buf.getvalue().encode("utf-8")
+        return StreamingResponse(
+            io.BytesIO(content),
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{safe_name}.csv"'},
+        )
+    else:
+        lines = []
+        for qa in pairs:
+            lines.append(json.dumps({
+                "instruction": qa.instruction,
+                "output": qa.output,
+                "is_valid": qa.is_valid,
+                "was_healed": qa.was_healed,
+                "source_title": qa.source_title,
+            }))
+        content = "\n".join(lines).encode("utf-8")
+        return StreamingResponse(
+            io.BytesIO(content),
+            media_type="application/jsonl",
+            headers={"Content-Disposition": f'attachment; filename="{safe_name}.jsonl"'},
+        )
+
+
+@router.post("/{dataset_id}/retry", response_model=DatasetResponse)
+def retry_dataset(
+    dataset_id: int,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Retry a failed/cancelled dataset generation with the same parameters."""
+    ds = db.query(Dataset).filter(
+        Dataset.id == dataset_id,
+        Dataset.user_id == current_user.id,
+    ).first()
+    if not ds:
+        raise HTTPException(404, "Dataset not found")
+    if ds.status not in ("failed", "cancelled"):
+        raise HTTPException(400, "Only failed or cancelled datasets can be retried")
+
+    # Reset status and counters
+    ds.status = "pending"
+    ds.error_message = None
+    ds.actual_size = 0
+    ds.valid_count = 0
+    ds.invalid_count = 0
+    ds.healed_count = 0
+    ds.prompt_tokens = 0
+    ds.completion_tokens = 0
+    ds.total_tokens = 0
+    ds.gpu_kwh = 0.0
+    ds.duration_seconds = 0.0
+    ds.started_at = None
+    ds.completed_at = None
+    db.commit()
+    db.refresh(ds)
+
+    # Delete old QA pairs and papers for this dataset
+    db.query(QAPair).filter(QAPair.dataset_id == dataset_id).delete()
+    from ..db.models import Paper
+    db.query(Paper).filter(Paper.dataset_id == dataset_id).delete()
+    db.commit()
+
+    # Resolve keys and resubmit
+    api_key = _resolve_api_key(ds.provider, current_user, db)
+
+    s2_api_key = None
+    core_api_key = None
+    if current_user.encryption_key:
+        user = db.query(User).filter(User.id == current_user.id).first()
+        if user and user.s2_token:
+            try:
+                s2_api_key = decrypt_value(user.s2_token, current_user.encryption_key)
+            except Exception:
+                pass
+        if user and user.core_token:
+            try:
+                core_api_key = decrypt_value(user.core_token, current_user.encryption_key)
+            except Exception:
+                pass
+    if not s2_api_key:
+        s2_api_key = os.environ.get("S2_API_KEY")
+    if not core_api_key:
+        core_api_key = os.environ.get("CORE_API_KEY")
+
+    pipeline_kwargs = dict(
+        dataset_id=ds.id,
+        topic=ds.topic,
+        provider=ds.provider,
+        model=ds.model,
+        api_key=api_key,
+        target_size=ds.target_size,
+        system_prompt=ds.system_prompt,
+        temperature=ds.temperature,
+        s2_api_key=s2_api_key,
+        core_api_key=core_api_key,
+        max_tokens=ds.max_tokens,
+    )
+    submit_job(ds.id, run_dataset_pipeline, **pipeline_kwargs)
+
+    return DatasetResponse.model_validate(ds)
 
 
 @router.post("/{dataset_id}/push-hf", response_model=HFPushResponse)

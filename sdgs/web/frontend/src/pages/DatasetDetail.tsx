@@ -1,10 +1,10 @@
 import { useEffect, useState, useRef } from 'react'
 import { useParams } from 'react-router-dom'
-import { Search, Upload, StopCircle, Trash2 } from 'lucide-react'
+import { Search, Upload, StopCircle, Trash2, Download, RotateCcw } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useDatasetStore } from '../store/datasetStore'
 import { useSSE } from '../hooks/useSSE'
-import { getDataset, cancelDataset, deleteQAPair } from '../api/client'
+import { getDataset, cancelDataset, deleteQAPair, exportDataset, retryDataset } from '../api/client'
 import StatsCards from '../components/datasets/StatsCards'
 import HFPushModal from '../components/datasets/HFPushModal'
 
@@ -29,6 +29,7 @@ export default function DatasetDetail() {
   const [expandedQA, setExpandedQA] = useState<number | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [confirmRemoveQA, setConfirmRemoveQA] = useState<number | null>(null)
+  const [showExportMenu, setShowExportMenu] = useState(false)
   const logViewerRef = useRef<HTMLDivElement>(null)
 
   // SSE for running datasets
@@ -101,9 +102,85 @@ export default function DatasetDetail() {
             </button>
           )}
           {currentDataset.status === 'completed' && (
-            <button className="btn btn-primary" onClick={() => setShowHFModal(true)}>
-              <Upload size={16} />
-              Push to HuggingFace
+            <>
+              <div style={{ position: 'relative', display: 'inline-block' }}>
+                <button
+                  className="btn"
+                  onClick={() => setShowExportMenu(!showExportMenu)}
+                >
+                  <Download size={16} />
+                  Export
+                </button>
+                {showExportMenu && (
+                  <div style={{
+                    position: 'absolute',
+                    top: '100%',
+                    right: 0,
+                    marginTop: '4px',
+                    background: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-primary)',
+                    borderRadius: 'var(--radius-sm)',
+                    overflow: 'hidden',
+                    zIndex: 10,
+                    minWidth: '120px',
+                  }}>
+                    <button
+                      style={{
+                        display: 'block',
+                        width: '100%',
+                        padding: '8px 12px',
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--text-primary)',
+                        fontSize: '13px',
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-tertiary)')}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
+                      onClick={() => { exportDataset(datasetId, 'jsonl'); setShowExportMenu(false) }}
+                    >
+                      Download JSONL
+                    </button>
+                    <button
+                      style={{
+                        display: 'block',
+                        width: '100%',
+                        padding: '8px 12px',
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--text-primary)',
+                        fontSize: '13px',
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-tertiary)')}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
+                      onClick={() => { exportDataset(datasetId, 'csv'); setShowExportMenu(false) }}
+                    >
+                      Download CSV
+                    </button>
+                  </div>
+                )}
+              </div>
+              <button className="btn btn-primary" onClick={() => setShowHFModal(true)}>
+                <Upload size={16} />
+                Push to HuggingFace
+              </button>
+            </>
+          )}
+          {(currentDataset.status === 'failed' || currentDataset.status === 'cancelled') && (
+            <button
+              className="btn btn-primary"
+              onClick={async () => {
+                try {
+                  const ds = await retryDataset(datasetId)
+                  updateDataset(ds)
+                } catch { /* ignore */ }
+              }}
+            >
+              <RotateCcw size={16} />
+              Retry
             </button>
           )}
           {!isRunning && (

@@ -167,13 +167,20 @@ export default function Papers() {
             >
               {scraping ? <span className="spinner" style={{ width: '14px', height: '14px' }} /> : 'Search'}
             </button>
-            <button className="btn" onClick={() => setShowScrape(false)}>
+            <button className="btn" onClick={() => { if (!scraping) setShowScrape(false) }} disabled={scraping}>
               Cancel
             </button>
           </div>
-          <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '8px', marginBottom: 0 }}>
-            Searches arXiv, Semantic Scholar, OpenAlex, and CORE for scholarly papers.
-          </p>
+          {scraping ? (
+            <div style={{ fontSize: '13px', color: 'var(--accent-green)', marginTop: '8px', marginBottom: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span className="spinner" style={{ width: '12px', height: '12px' }} />
+              Searching arXiv, Semantic Scholar, OpenAlex, and CORE... this may take a moment.
+            </div>
+          ) : (
+            <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '8px', marginBottom: 0 }}>
+              Searches arXiv, Semantic Scholar, OpenAlex, and CORE for scholarly papers.
+            </p>
+          )}
         </div>
       )}
 

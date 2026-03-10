@@ -123,6 +123,28 @@ export const cancelDataset = (id: number) =>
 export const deleteDataset = (id: number) =>
   request<{ status: string }>(`/datasets/${id}`, { method: 'DELETE' })
 
+export const retryDataset = (id: number) =>
+  request<Dataset>(`/datasets/${id}/retry`, { method: 'POST' })
+
+export async function exportDataset(id: number, format: 'jsonl' | 'csv' = 'jsonl') {
+  const res = await fetch(`${BASE_URL}/datasets/${id}/export?fmt=${format}`, {
+    headers: { ...getAuthHeader() },
+  })
+  if (!res.ok) throw new ApiError(await res.text(), res.status)
+  const blob = await res.blob()
+  const disposition = res.headers.get('content-disposition') || ''
+  const match = disposition.match(/filename="(.+)"/)
+  const filename = match ? match[1] : `dataset_${id}.${format}`
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
 export interface QAPair {
   id: number | null
   instruction: string
@@ -445,6 +467,9 @@ export const cancelTraining = (id: number) =>
 
 export const deleteTrainingRun = (id: number) =>
   request<{ deleted: boolean }>(`/training/${id}`, { method: 'DELETE' })
+
+export const retryTrainingRun = (id: number) =>
+  request<TrainingRun>(`/training/${id}/retry`, { method: 'POST' })
 
 // Evaluations
 export interface EvaluationRun {
