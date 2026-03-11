@@ -271,6 +271,10 @@ label {
   to { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
 /* Responsive */
 @media (max-width: 1024px) {
   .grid-4 { grid-template-columns: repeat(2, 1fr); }

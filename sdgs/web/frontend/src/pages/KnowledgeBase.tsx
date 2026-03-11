@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react'
-import { Search, Database, MessageSquare, RefreshCw, Trash2, BookOpen } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Search, Database, MessageSquare, RefreshCw, Trash2, BookOpen, Terminal } from 'lucide-react'
 import {
-  getKBStatus, indexKB, searchKB, chatKB, resetKB,
-  KBStatus, KBSearchResult, KBChatResponse,
+  getKBStatus, indexKBStream, searchKB, chatKB, resetKB,
+  KBStatus, KBSearchResult, KBChatResponse, KBIndexEvent,
 } from '../api/client'
 import { useToastStore } from '../store/toastStore'
 
@@ -26,31 +26,51 @@ export default function KnowledgeBase() {
 
   // Index state
   const [indexing, setIndexing] = useState(false)
+  const [indexLogs, setIndexLogs] = useState<string[]>([])
+  const terminalRef = useRef<HTMLDivElement>(null)
+  const cancelRef = useRef<(() => void) | null>(null)
 
   useEffect(() => {
     loadStatus()
   }, [])
+
+  // Auto-scroll terminal
+  useEffect(() => {
+    if (terminalRef.current) {
+      terminalRef.current.scrollTop = terminalRef.current.scrollHeight
+    }
+  }, [indexLogs])
 
   async function loadStatus() {
     try {
       const s = await getKBStatus()
       setStatus(s)
     } catch {
-      // KB not initialized yet, that's fine
+      // KB not initialized yet
     }
   }
 
-  async function handleIndex(force = false) {
+  function handleIndex(force = false) {
     setIndexing(true)
-    try {
-      const result = await indexKB(force)
-      addToast('success', `Indexed ${result.indexed} PDFs (${result.chunks_added} chunks, ${result.skipped} skipped)`)
-      await loadStatus()
-    } catch (e) {
-      addToast('error', e instanceof Error ? e.message : 'Indexing failed')
-    } finally {
-      setIndexing(false)
-    }
+    setIndexLogs(['$ ouroboros index-papers' + (force ? ' --force' : ''), ''])
+
+    const cancel = indexKBStream(
+      (event: KBIndexEvent) => {
+        if (event.message) {
+          setIndexLogs(prev => [...prev, event.message!])
+        }
+        if (event.type === 'done') {
+          addToast('success', `Indexed ${event.indexed} PDFs (${event.chunks_added} chunks, ${event.skipped} skipped)`)
+        }
+      },
+      () => {
+        setIndexing(false)
+        loadStatus()
+      },
+      force,
+    )
+
+    cancelRef.current = cancel
   }
 
   async function handleSearch(e: React.FormEvent) {
@@ -91,6 +111,7 @@ export default function KnowledgeBase() {
       await resetKB()
       setSearchResults([])
       setChatResponse(null)
+      setIndexLogs([])
       addToast('success', 'Knowledge base reset')
       await loadStatus()
     } catch (e) {
@@ -145,6 +166,56 @@ export default function KnowledgeBase() {
               Latest: {status.indexed_files[status.indexed_files.length - 1]}
             </span>
           )}
+        </div>
+      )}
+
+      {/* Terminal output */}
+      {indexLogs.length > 0 && (
+        <div style={{ marginBottom: '20px' }}>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '6px',
+            padding: '8px 12px',
+            background: '#1a1a2e', borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
+            borderBottom: '1px solid #2a2a3e',
+          }}>
+            <Terminal size={12} style={{ color: '#6c6c8a' }} />
+            <span style={{ fontSize: '11px', color: '#6c6c8a', fontWeight: 500 }}>Index Output</span>
+            {indexing && <span style={{ fontSize: '10px', color: '#4ade80', marginLeft: 'auto' }}>RUNNING</span>}
+            {!indexing && indexLogs.length > 2 && <span style={{ fontSize: '10px', color: '#6c6c8a', marginLeft: 'auto' }}>DONE</span>}
+          </div>
+          <div
+            ref={terminalRef}
+            style={{
+              background: '#0d0d1a',
+              borderRadius: '0 0 var(--radius-sm) var(--radius-sm)',
+              padding: '12px 16px',
+              maxHeight: '300px',
+              overflowY: 'auto',
+              fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", monospace',
+              fontSize: '12px',
+              lineHeight: 1.7,
+            }}
+          >
+            {indexLogs.map((line, i) => {
+              let color = '#a0a0b8'
+              if (line.startsWith('$')) color = '#818cf8'
+              else if (line.includes('OK   ')) color = '#4ade80'
+              else if (line.includes('SKIP ')) color = '#fbbf24'
+              else if (line.includes('Error')) color = '#f87171'
+              else if (line.startsWith('---') || line.startsWith('Done.') || line.startsWith('Found')) color = '#60a5fa'
+
+              return (
+                <div key={i} style={{ color, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                  {line || '\u00A0'}
+                </div>
+              )
+            })}
+            {indexing && (
+              <div style={{ color: '#818cf8' }}>
+                <span style={{ animation: 'blink 1s step-end infinite' }}>_</span>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

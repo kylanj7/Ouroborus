@@ -184,45 +184,67 @@ def get_manager() -> VectorStoreManager:
 # --- High-level operations ---
 
 def index_papers(force: bool = False) -> dict:
-    """Index all PDFs in data/pdfs/ into ChromaDB.
+    """Index all PDFs (non-streaming). Returns final stats."""
+    results = {}
+    for event in index_papers_stream(force=force):
+        if event.get("type") == "done":
+            results = event
+    return results
+
+
+def index_papers_stream(force: bool = False):
+    """Index all PDFs in data/pdfs/ into ChromaDB, yielding progress events.
 
     Follows the Nemotron pipeline: hash each file, skip duplicates,
     chunk new/changed files, embed and store.
 
-    Returns dict with indexing stats.
+    Yields dicts with type: log|skip|index|done.
     """
     manager = get_manager()
 
-    pdf_files = list(PDF_DIR.glob("*.pdf"))
+    pdf_files = sorted(PDF_DIR.glob("*.pdf"))
+    total = len(pdf_files)
+
     if not pdf_files:
-        return {"total_pdfs": 0, "indexed": 0, "skipped": 0, "chunks_added": 0}
+        yield {"type": "log", "message": "No PDFs found in data/pdfs/"}
+        yield {"type": "done", "total_pdfs": 0, "indexed": 0, "skipped": 0, "chunks_added": 0}
+        return
+
+    yield {"type": "log", "message": f"Found {total} PDF(s) in data/pdfs/"}
+    yield {"type": "log", "message": f"Embedding model: {EMBEDDING_MODEL}"}
+    yield {"type": "log", "message": f"Chunk size: {CHUNK_SIZE}, overlap: {CHUNK_OVERLAP}"}
+    yield {"type": "log", "message": "---"}
 
     indexed = 0
     skipped = 0
     total_chunks = 0
 
-    for pdf_path in pdf_files:
+    for i, pdf_path in enumerate(pdf_files, 1):
         pdf_str = str(pdf_path)
+        filename = pdf_path.name
 
         # Hash-based duplicate check
         if not force and manager.is_file_indexed(pdf_str):
             skipped += 1
+            yield {"type": "skip", "message": f"[{i}/{total}] SKIP  {filename} (already indexed)", "file": filename, "progress": i, "total": total}
             continue
+
+        yield {"type": "log", "message": f"[{i}/{total}] Extracting text from {filename}..."}
 
         chunks = extract_and_chunk_pdf(pdf_str)
         if chunks:
+            yield {"type": "log", "message": f"[{i}/{total}] Chunked into {len(chunks)} segments, embedding..."}
             manager.add_documents(chunks, source_file=pdf_str)
             total_chunks += len(chunks)
             indexed += 1
+            yield {"type": "index", "message": f"[{i}/{total}] OK    {filename} -> {len(chunks)} chunks", "file": filename, "chunks": len(chunks), "progress": i, "total": total}
         else:
             skipped += 1
+            yield {"type": "skip", "message": f"[{i}/{total}] SKIP  {filename} (no text extracted)", "file": filename, "progress": i, "total": total}
 
-    return {
-        "total_pdfs": len(pdf_files),
-        "indexed": indexed,
-        "skipped": skipped,
-        "chunks_added": total_chunks,
-    }
+    yield {"type": "log", "message": "---"}
+    yield {"type": "log", "message": f"Done. Indexed {indexed}, skipped {skipped}, {total_chunks} total chunks."}
+    yield {"type": "done", "total_pdfs": total, "indexed": indexed, "skipped": skipped, "chunks_added": total_chunks}
 
 
 def search(query: str, k: int = TOP_K_RESULTS) -> list[dict]:

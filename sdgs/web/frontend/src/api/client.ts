@@ -740,11 +740,69 @@ export interface KBIndexResponse {
 
 export const getKBStatus = () => request<KBStatus>('/knowledge/status')
 
-export const indexKB = (force = false) =>
-  request<KBIndexResponse>('/knowledge/index', {
-    method: 'POST',
-    body: JSON.stringify({ force }),
-  })
+export interface KBIndexEvent {
+  type: 'log' | 'skip' | 'index' | 'done'
+  message?: string
+  file?: string
+  chunks?: number
+  progress?: number
+  total?: number
+  total_pdfs?: number
+  indexed?: number
+  skipped?: number
+  chunks_added?: number
+}
+
+export function indexKBStream(
+  onEvent: (event: KBIndexEvent) => void,
+  onDone?: () => void,
+  force = false,
+): () => void {
+  const controller = new AbortController()
+
+  ;(async () => {
+    try {
+      const res = await fetch(`${BASE_URL}/knowledge/index?force=${force}`, {
+        headers: { ...getAuthHeader() },
+        signal: controller.signal,
+      })
+      if (!res.ok || !res.body) {
+        onEvent({ type: 'log', message: `Error: HTTP ${res.status}` })
+        onDone?.()
+        return
+      }
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n\n')
+        buffer = lines.pop() || ''
+        for (const block of lines) {
+          const dataLine = block.split('\n').find(l => l.startsWith('data: '))
+          if (dataLine) {
+            try {
+              const event = JSON.parse(dataLine.slice(6)) as KBIndexEvent
+              onEvent(event)
+              if (event.type === 'done') onDone?.()
+            } catch { /* skip */ }
+          }
+        }
+      }
+      onDone?.()
+    } catch (e) {
+      if (!controller.signal.aborted) {
+        onEvent({ type: 'log', message: e instanceof Error ? e.message : 'Indexing failed' })
+        onDone?.()
+      }
+    }
+  })()
+
+  return () => controller.abort()
+}
 
 export const searchKB = (q: string, k = 5) =>
   request<KBSearchResponse>(`/knowledge/search?q=${encodeURIComponent(q)}&k=${k}`)
