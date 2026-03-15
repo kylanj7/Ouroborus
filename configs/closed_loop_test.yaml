@@ -1,0 +1,34 @@
+gate:
+  improvement_threshold: 0.5
+  fail_cap: 2
+
+training:
+  base_model: "Qwen/Qwen2.5-7B-Instruct"
+  model_config: "qwen2.5-7b-instruct"
+  training_config: "quick_test"
+  checkpoint_dir: "models/merged-test/"
+  max_checkpoints: 2
+
+benchmarks:
+  suites:
+    - mmlu_college_physics
+  batch_size: 2
+
+tally:
+  model: "gpt-oss:120b"
+  max_clusters: 3
+  history_window: 2
+
+curation:
+  min_pairs_per_cycle: 20
+  max_pairs_per_cycle: 50
+  verification:
+    citation_matching: false
+    chunk_similarity_threshold: 0.2
+
+retrieval:
+  max_papers_per_cluster: 3
+
+termination:
+  target_score: 90.0
+  max_cycles: 3

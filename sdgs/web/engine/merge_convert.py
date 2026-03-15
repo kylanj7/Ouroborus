@@ -276,3 +276,15 @@ def merge_and_convert(
         if not keep_merged and os.path.exists(merged_path):
             shutil.rmtree(merged_path, ignore_errors=True)
         raise
+
+
+def merge_lora_only(adapter_path: str, base_model: str, output_dir: str) -> str:
+    """Merge LoRA adapter into base model, save as HF format.
+
+    Unlike merge_and_convert(), this preserves the merged HF model
+    and does NOT convert to GGUF. Used by the closed-loop for
+    merge-and-continue training.
+
+    Returns: path to merged model directory.
+    """
+    return merge_lora(adapter_path, base_model, output_dir)
