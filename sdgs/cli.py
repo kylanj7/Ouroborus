@@ -278,6 +278,84 @@ def loop_history(limit):
         )
 
 
+@cli.group("closed-loop")
+def closed_loop():
+    """Closed-loop self-feeding training — autonomous benchmark → diagnose → curate → train cycle."""
+
+
+@closed_loop.command("start")
+@click.option("--config", "config_path", default=None, help="Path to closed-loop config YAML (default: configs/closed_loop.yaml)")
+def closed_loop_start(config_path):
+    """Start a closed-loop training run."""
+    import logging
+    from .loop.config_v2 import load_closed_loop_config
+    from .loop.orchestrator_v2 import ClosedLoopOrchestrator
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
+    cfg = load_closed_loop_config(config_path)
+    orch = ClosedLoopOrchestrator(config=cfg)
+
+    click.echo(f"Starting closed-loop training (max {cfg.termination.max_cycles} cycles, target {cfg.termination.target_score}%)")
+    click.echo(f"  Base model: {cfg.training.base_model}")
+    click.echo(f"  Benchmarks: {', '.join(cfg.benchmarks.suites)}")
+    click.echo(f"  Tally model: {cfg.tally.model}")
+    click.echo()
+
+    loop_id = orch.run()
+    state = orch.state.get_loop(loop_id)
+    click.echo()
+    click.echo(f"Loop {loop_id} finished -- {state.status}")
+    if state.stop_reason:
+        click.echo(f"  Reason: {state.stop_reason.value}")
+    if state.cycles:
+        last = state.cycles[-1]
+        avg = last.benchmark_scores.get("average", 0)
+        click.echo(f"  Final score: {avg:.1f}%")
+        click.echo(f"  Cycles: {len(state.cycles)}")
+
+
+@closed_loop.command("status")
+def closed_loop_status():
+    """Show the status of the current closed-loop run."""
+    from .loop.state_v2 import LoopStateStore
+
+    store = LoopStateStore()
+    active = store.get_active_loop()
+    if not active:
+        click.echo("No active closed-loop run.")
+        store.close()
+        return
+
+    click.echo(f"Loop: {active.loop_id}")
+    click.echo(f"  Status: {active.status}")
+    click.echo(f"  Cycle:  {active.current_cycle}")
+    click.echo(f"  Stage:  {active.current_stage.value}")
+    if active.cycles:
+        last = active.cycles[-1]
+        avg = last.benchmark_scores.get("average", 0)
+        click.echo(f"  Last score: {avg:.1f}%")
+        click.echo(f"  Gate passed: {last.gate_passed}")
+    store.close()
+
+
+@closed_loop.command("stop")
+def closed_loop_stop():
+    """Request graceful stop of the running closed-loop."""
+    from .loop.state_v2 import LoopStateStore
+
+    store = LoopStateStore()
+    active = store.get_active_loop()
+    if not active:
+        click.echo("No active closed-loop run to stop.")
+        store.close()
+        return
+
+    store.request_stop(active.loop_id)
+    click.echo(f"Stop requested for {active.loop_id}")
+    click.echo("The loop will halt after the current stage completes.")
+    store.close()
+
+
 @cli.command()
 @click.option("--host", default="0.0.0.0", help="Host to bind to")
 @click.option("--port", default=8000, type=int, help="Port to bind to")
