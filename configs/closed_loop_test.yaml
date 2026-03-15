@@ -18,10 +18,13 @@ tally:
   model: "gpt-oss:120b"
   max_clusters: 3
   history_window: 2
+  max_tool_calls: 5
+  timeout_seconds: 60
 
 curation:
   min_pairs_per_cycle: 20
   max_pairs_per_cycle: 50
+  max_retries_per_pair: 1
   verification:
     citation_matching: false
     chunk_similarity_threshold: 0.2
