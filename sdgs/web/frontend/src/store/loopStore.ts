@@ -1,39 +1,70 @@
 import { create } from 'zustand'
 import {
-  getLoopStatus,
-  startLoop,
-  stopLoop,
-  listLoops,
-  type LoopStatus,
-  type LoopListEntry,
-  type LoopStartParams,
+  getClosedLoopStatus,
+  getClosedLoopHistory,
+  startClosedLoop,
+  stopClosedLoop,
+  type ClosedLoopCycle,
 } from '../api/client'
 
+interface GateBannerData {
+  passed: boolean
+  delta: number
+  cycle: number
+  consecutiveFailures: number
+}
+
 interface LoopState {
-  status: LoopStatus | null
-  history: LoopListEntry[]
+  loopId: string | null
+  status: string
+  currentCycle: number
+  currentStage: string | null
+  consecutiveGateFailures: number
+  stopReason: string | null
+  cycles: ClosedLoopCycle[]
+  tallyResult: Record<string, any> | null
+  gateBanner: GateBannerData | null
   loading: boolean
   error: string | null
-  activeLoopId: string | null
 
   fetchStatus: () => Promise<void>
   fetchHistory: () => Promise<void>
-  start: (params: LoopStartParams) => Promise<string | null>
+  start: (configPath?: string) => Promise<string | null>
   stop: () => Promise<void>
-  setActiveLoopId: (id: string | null) => void
+  setCurrentStage: (stage: string) => void
+  setCurrentCycle: (cycle: number) => void
+  setTallyResult: (data: Record<string, any>) => void
+  showGateBanner: (data: GateBannerData) => void
+  dismissGateBanner: () => void
+  setStatus: (status: string) => void
+  setStopReason: (reason: string | null) => void
 }
 
 export const useLoopStore = create<LoopState>((set, get) => ({
-  status: null,
-  history: [],
+  loopId: null,
+  status: 'idle',
+  currentCycle: 0,
+  currentStage: null,
+  consecutiveGateFailures: 0,
+  stopReason: null,
+  cycles: [],
+  tallyResult: null,
+  gateBanner: null,
   loading: false,
   error: null,
-  activeLoopId: null,
 
   fetchStatus: async () => {
     try {
-      const status = await getLoopStatus()
-      set({ status, error: null })
+      const res = await getClosedLoopStatus()
+      set({
+        loopId: res.loop_id,
+        status: res.status,
+        currentCycle: res.current_cycle,
+        currentStage: res.current_stage,
+        consecutiveGateFailures: res.consecutive_gate_failures,
+        stopReason: res.stop_reason,
+        error: null,
+      })
     } catch (e: any) {
       set({ error: e.message })
     }
@@ -41,19 +72,19 @@ export const useLoopStore = create<LoopState>((set, get) => ({
 
   fetchHistory: async () => {
     try {
-      const history = await listLoops(20)
-      set({ history, error: null })
+      const res = await getClosedLoopHistory()
+      set({ cycles: res.cycles, error: null })
     } catch (e: any) {
       set({ error: e.message })
     }
   },
 
-  start: async (params: LoopStartParams) => {
+  start: async (configPath?: string) => {
     set({ loading: true, error: null })
     try {
-      const res = await startLoop(params)
+      const res = await startClosedLoop(configPath)
       const loopId = res.loop_id
-      set({ activeLoopId: loopId })
+      set({ loopId, status: res.status })
       await get().fetchStatus()
       return loopId
     } catch (e: any) {
@@ -67,7 +98,7 @@ export const useLoopStore = create<LoopState>((set, get) => ({
   stop: async () => {
     set({ loading: true, error: null })
     try {
-      await stopLoop()
+      await stopClosedLoop()
       await get().fetchStatus()
     } catch (e: any) {
       set({ error: e.message })
@@ -76,7 +107,31 @@ export const useLoopStore = create<LoopState>((set, get) => ({
     }
   },
 
-  setActiveLoopId: (id: string | null) => {
-    set({ activeLoopId: id })
+  setCurrentStage: (stage: string) => {
+    set({ currentStage: stage })
+  },
+
+  setCurrentCycle: (cycle: number) => {
+    set({ currentCycle: cycle })
+  },
+
+  setTallyResult: (data: Record<string, any>) => {
+    set({ tallyResult: data })
+  },
+
+  showGateBanner: (data: GateBannerData) => {
+    set({ gateBanner: data })
+  },
+
+  dismissGateBanner: () => {
+    set({ gateBanner: null })
+  },
+
+  setStatus: (status: string) => {
+    set({ status })
+  },
+
+  setStopReason: (reason: string | null) => {
+    set({ stopReason: reason })
   },
 }))
