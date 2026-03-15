@@ -149,3 +149,22 @@ def test_fallback_analysis_empty_input():
 
     assert result["clusters"] == []
     assert result["search_queries"] == []
+
+
+# ---------------------------------------------------------------------------
+# test_run_tally
+# ---------------------------------------------------------------------------
+
+
+def test_run_tally_falls_back_on_agent_failure(tmp_path):
+    from sdgs.loop.tally_agent import run_tally
+    from unittest.mock import patch
+    failed = [
+        {"task": "gpqa", "question": "What is decoherence?",
+         "model_answer": "A", "correct_answer": "C", "passed": False},
+    ]
+    with patch("sdgs.loop.tally_agent.create_react_agent", side_effect=Exception("no ollama")):
+        result = run_tally(failed, [], log_dir=str(tmp_path))
+        assert "clusters" in result
+        assert "search_queries" in result
+        assert len(result["clusters"]) > 0

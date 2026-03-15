@@ -4,7 +4,10 @@ from __future__ import annotations
 import json
 import logging
 import re
+import signal
 from collections import Counter
+
+from langgraph.prebuilt import create_react_agent
 
 log = logging.getLogger(__name__)
 
@@ -196,11 +199,16 @@ def run_tally(
     model: str = "gpt-oss:120b",
     provider: str = "ollama",
     max_retries: int = 3,
+    max_tool_calls: int = 20,
+    timeout_seconds: int = 600,
+    log_dir: str = "logs/loop/",
+    history_window: int = 5,
 ) -> dict:
     """Run the tally agent to diagnose benchmark failures.
 
-    Uses ChatOllama from langchain_ollama. Retries on failure and falls back
-    to fallback_analysis after max_retries.
+    Uses a LangGraph ReAct agent with tools for Semantic Scholar search,
+    training history lookup, and analysis submission. Falls back to
+    fallback_analysis on any unrecoverable failure.
 
     Args:
         failed_questions: Each dict has task, question, model_answer,
@@ -208,7 +216,12 @@ def run_tally(
         history: Prior cycle records.
         model: Ollama model name.
         provider: Currently only "ollama" is supported.
-        max_retries: Number of LLM attempts before using the fallback.
+        max_retries: Number of agent invocation attempts before using fallback.
+        max_tool_calls: Maximum number of tool calls; recursion_limit is set
+            to max_tool_calls * 2.
+        timeout_seconds: Wall-clock timeout for the agent invocation (Unix only).
+        log_dir: Directory where CycleLogger writes its JSONL log.
+        history_window: Number of most recent cycles to pass to the history tool.
 
     Returns:
         Dict with clusters, search_queries, and generation_guidance.
@@ -216,25 +229,73 @@ def run_tally(
     from langchain_core.messages import HumanMessage, SystemMessage
     from langchain_ollama import ChatOllama
 
-    prompt_text = build_tally_prompt(failed_questions, history)
+    from sdgs.loop.tally_tools import (
+        get_submitted_analysis,
+        make_training_history_tool,
+        search_semantic_scholar,
+        submit_analysis,
+    )
 
-    llm = ChatOllama(model=model)
-    messages = [
-        SystemMessage(content=TALLY_SYSTEM_PROMPT),
-        HumanMessage(content=prompt_text),
-    ]
+    prompt_text = build_tally_prompt(failed_questions, history)
+    system_content = (
+        TALLY_SYSTEM_PROMPT
+        + "\n\nIMPORTANT: You MUST call the submit_analysis tool when your investigation is complete."
+    )
+
+    training_history_tool = make_training_history_tool(log_dir, history_window)
+    tools = [search_semantic_scholar, training_history_tool, submit_analysis]
+
+    input_messages = {
+        "messages": [
+            SystemMessage(content=system_content),
+            HumanMessage(content=prompt_text),
+        ]
+    }
+    config = {"recursion_limit": max_tool_calls * 2}
 
     last_exc: Exception | None = None
+
+    def _timeout_handler(signum, frame):  # noqa: ANN001
+        raise TimeoutError(f"Tally agent timed out after {timeout_seconds}s")
+
     for attempt in range(1, max_retries + 1):
         try:
-            log.info("Tally agent attempt %d/%d (model=%s)", attempt, max_retries, model)
-            response = llm.invoke(messages)
-            raw = response.content if hasattr(response, "content") else str(response)
-            result = parse_tally_output(raw)
-            log.info("Tally agent succeeded on attempt %d", attempt)
-            return result
+            log.info(
+                "Tally ReAct agent attempt %d/%d (model=%s)", attempt, max_retries, model
+            )
+
+            llm = ChatOllama(model=model)
+            agent = create_react_agent(llm, tools)
+
+            old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
+            signal.alarm(timeout_seconds)
+            try:
+                result_state = agent.invoke(input_messages, config=config)
+            finally:
+                signal.alarm(0)
+                signal.signal(signal.SIGALRM, old_handler)
+
+            # Prefer result from submit_analysis tool
+            submitted = get_submitted_analysis()
+            if submitted is not None:
+                log.info("Tally agent succeeded via submit_analysis on attempt %d", attempt)
+                return submitted
+
+            # Fall back to parsing the last message content
+            messages_out = result_state.get("messages", [])
+            if messages_out:
+                last_content = messages_out[-1].content
+                raw = last_content if isinstance(last_content, str) else str(last_content)
+                parsed = parse_tally_output(raw)
+                log.info(
+                    "Tally agent succeeded via parse_tally_output on attempt %d", attempt
+                )
+                return parsed
+
+            raise ValueError("Agent produced no messages and no submitted analysis.")
+
         except Exception as exc:  # noqa: BLE001
-            log.warning("Tally agent attempt %d failed: %s", attempt, exc)
+            log.warning("Tally ReAct agent attempt %d failed: %s", attempt, exc)
             last_exc = exc
 
     log.error(
