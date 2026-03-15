@@ -340,31 +340,21 @@ export default function Dashboard() {
         }}>
           <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '1px', background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent)' }} />
           <div style={{ marginBottom: '24px' }}>
-            <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#fff', letterSpacing: '-0.01em' }}>PDFs by Category</h3>
+            <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#fff', letterSpacing: '-0.01em' }}>PDF's by Category</h3>
             <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>{paperTopicData.length} categories</p>
           </div>
-          <ResponsiveContainer width="100%" height={360}>
-            <PieChart>
-              <Pie
-                data={paperTopicData}
-                dataKey="value"
-                nameKey="fullName"
-                cx="50%"
-                cy="50%"
-                innerRadius={70}
-                outerRadius={120}
-                paddingAngle={2}
-                strokeWidth={0}
-                label={({ fullName, percent }) => `${fullName} ${(percent * 100).toFixed(0)}%`}
-                labelLine={{ stroke: 'rgba(255,255,255,0.08)', strokeWidth: 1 }}
-                fontSize={10}
-              >
+          <ResponsiveContainer width="100%" height={Math.max(260, paperTopicData.length * 38 + 40)}>
+            <BarChart data={paperTopicData} layout="vertical" margin={{ left: 10, right: 30, top: 5, bottom: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" horizontal={false} />
+              <XAxis type="number" tick={{ fontSize: 10, fill: '#475569' }} axisLine={false} tickLine={false} />
+              <YAxis type="category" dataKey="fullName" width={180} tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: '#fff' }} formatter={(v: number) => [`${v} papers`, 'Count']} cursor={{ fill: 'rgba(0,0,0,0.3)' }} />
+              <Bar dataKey="value" name="Papers" radius={[0, 8, 8, 0]} barSize={22}>
                 {paperTopicData.map((_, i) => (
                   <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
                 ))}
-              </Pie>
-              <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => [`${v} papers`, 'Count']} />
-            </PieChart>
+              </Bar>
+            </BarChart>
           </ResponsiveContainer>
         </div>
       )}

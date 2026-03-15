@@ -818,6 +818,16 @@ export interface KBChatResponse {
   answer: string
   sources: string[]
   chunks_used: number
+  model?: string
+}
+
+export interface KBChatParams {
+  query: string
+  model?: string
+  k?: number
+  temperature?: number
+  top_k?: number
+  max_tokens?: number
 }
 
 export interface KBIndexResponse {
@@ -832,6 +842,7 @@ export const getKBStatus = () => request<KBStatus>('/knowledge/status')
 export interface KBIndexEvent {
   type: 'log' | 'skip' | 'index' | 'done'
   message?: string
+  data?: string
   file?: string
   chunks?: number
   progress?: number
@@ -842,16 +853,30 @@ export interface KBIndexEvent {
   chunks_added?: number
 }
 
-export function indexKBStream(
+export interface KBIndexStatus {
+  running: boolean
+  logs_count: number
+}
+
+export const startKBIndex = (force = false) =>
+  request<{ status: string }>(`/knowledge/index?force=${force}`, { method: 'POST' })
+
+export const getKBIndexStatus = () =>
+  request<KBIndexStatus>('/knowledge/index/status')
+
+export const stopKBIndex = () =>
+  request<{ status: string }>('/knowledge/index/cancel', { method: 'POST' })
+
+export function indexKBEvents(
   onEvent: (event: KBIndexEvent) => void,
   onDone?: () => void,
-  force = false,
+  lastId = 0,
 ): () => void {
   const controller = new AbortController()
 
   ;(async () => {
     try {
-      const res = await fetch(`${BASE_URL}/knowledge/index?force=${force}`, {
+      const res = await fetch(`${BASE_URL}/knowledge/index/events?last_id=${lastId}`, {
         headers: { ...getAuthHeader() },
         signal: controller.signal,
       })
@@ -896,10 +921,17 @@ export function indexKBStream(
 export const searchKB = (q: string, k = 5) =>
   request<KBSearchResponse>(`/knowledge/search?q=${encodeURIComponent(q)}&k=${k}`)
 
-export const chatKB = (query: string, model = 'nemotron-3-nano:latest', k = 5) =>
+export const chatKB = (params: KBChatParams) =>
   request<KBChatResponse>('/knowledge/chat', {
     method: 'POST',
-    body: JSON.stringify({ query, model, k }),
+    body: JSON.stringify({
+      query: params.query,
+      model: params.model || 'gpt-oss:120b',
+      k: params.k || 5,
+      temperature: params.temperature ?? 0.7,
+      top_k: params.top_k ?? 40,
+      max_tokens: params.max_tokens ?? 2048,
+    }),
   })
 
 export const resetKB = () =>

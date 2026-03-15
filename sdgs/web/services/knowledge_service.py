@@ -10,6 +10,8 @@ Follows the same pattern as the Nemotron-3-Nano RAG pipeline:
 import hashlib
 import json
 import os
+import queue
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -261,10 +263,9 @@ def search(query: str, k: int = TOP_K_RESULTS) -> list[dict]:
     ]
 
 
-def chat(query: str, model: str = "nemotron-3-nano:latest", k: int = TOP_K_RESULTS) -> dict:
+def chat(query: str, model: str = "gpt-oss:120b", k: int = TOP_K_RESULTS, temperature: float = 0.7, top_k: int = 40, max_tokens: int = 2048) -> dict:
     """RAG chat: retrieve context from knowledge base, generate answer with Ollama.
 
-    Follows the Nemotron retriever.py pattern:
     - Similarity search for relevant chunks
     - Build context string with source attribution
     - Prompt Ollama with context + question
@@ -278,6 +279,8 @@ def chat(query: str, model: str = "nemotron-3-nano:latest", k: int = TOP_K_RESUL
         return {
             "answer": "No relevant documents found in the knowledge base.",
             "sources": [],
+            "chunks_used": 0,
+            "model": model,
         }
 
     # Build context from retrieved chunks
@@ -304,8 +307,9 @@ Answer:"""
     llm = OllamaLLM(
         model=model,
         base_url="http://localhost:11434",
-        temperature=0.7,
-        num_predict=2048,
+        temperature=temperature,
+        top_k=top_k,
+        num_predict=max_tokens,
     )
 
     response = llm.invoke(prompt)
@@ -318,6 +322,7 @@ Answer:"""
         "answer": response.strip(),
         "sources": sources,
         "chunks_used": len(docs),
+        "model": model,
     }
 
 
@@ -339,3 +344,82 @@ def reset():
     manager = get_manager()
     manager.delete_collection()
     _manager = None
+
+
+# --- Background indexing with persistent log buffer ---
+
+_index_lock = threading.Lock()
+_index_queue: Optional[queue.Queue] = None
+_index_logs: list[dict] = []
+_index_running = False
+_index_cancel = threading.Event()
+
+
+def _emit_index(item: dict):
+    """Append to persistent log buffer and push to the live queue."""
+    global _index_queue
+    with _index_lock:
+        _index_logs.append(item)
+        if _index_queue is not None:
+            _index_queue.put(item)
+
+
+def _index_worker(force: bool):
+    """Run indexing in a background thread, emitting events to the log buffer."""
+    global _index_running
+    try:
+        for event in index_papers_stream(force=force):
+            if _index_cancel.is_set():
+                _emit_index({"type": "log", "message": "Indexing cancelled by user."})
+                _emit_index({"type": "done", "message": "Cancelled", "total_pdfs": 0, "indexed": 0, "skipped": 0, "chunks_added": 0})
+                return
+            _emit_index(event)
+    except Exception as e:
+        _emit_index({"type": "done", "message": f"Error: {e}", "total_pdfs": 0, "indexed": 0, "skipped": 0, "chunks_added": 0})
+    finally:
+        with _index_lock:
+            _index_running = False
+            _index_cancel.clear()
+            if _index_queue is not None:
+                _index_queue.put(None)  # sentinel
+
+
+def start_indexing(force: bool = False) -> bool:
+    """Start background indexing. Returns False if already running."""
+    global _index_queue, _index_logs, _index_running
+    with _index_lock:
+        if _index_running:
+            return False
+        _index_running = True
+        _index_cancel.clear()
+        _index_queue = queue.Queue()
+        _index_logs.clear()
+    t = threading.Thread(target=_index_worker, args=(force,), daemon=True)
+    t.start()
+    return True
+
+
+def stop_indexing() -> bool:
+    """Cancel a running indexing operation."""
+    with _index_lock:
+        if not _index_running:
+            return False
+    _index_cancel.set()
+    return True
+
+
+def is_indexing() -> bool:
+    with _index_lock:
+        return _index_running
+
+
+def get_index_queue() -> Optional[queue.Queue]:
+    with _index_lock:
+        if _index_running:
+            return _index_queue
+        return None
+
+
+def get_index_logs() -> list[dict]:
+    with _index_lock:
+        return list(_index_logs)

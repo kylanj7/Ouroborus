@@ -1,15 +1,17 @@
 import { useState, useEffect, useRef } from 'react'
-import { Search, Database, MessageSquare, RefreshCw, Trash2, BookOpen, Terminal } from 'lucide-react'
+import { Search, Database, MessageSquare, RefreshCw, Trash2, BookOpen, Terminal, Square, SlidersHorizontal } from 'lucide-react'
 import {
-  getKBStatus, indexKBStream, searchKB, chatKB, resetKB,
-  KBStatus, KBSearchResult, KBChatResponse, KBIndexEvent,
+  getKBStatus, searchKB, chatKB, resetKB,
+  KBStatus, KBSearchResult, KBChatResponse,
 } from '../api/client'
 import { useToastStore } from '../store/toastStore'
+import { useKnowledgeStore } from '../store/knowledgeStore'
 
 type Tab = 'search' | 'chat'
 
 export default function KnowledgeBase() {
   const addToast = useToastStore(s => s.addToast)
+  const { indexing, logs, startIndex, stopIndex, connectEvents, disconnect } = useKnowledgeStore()
   const [tab, setTab] = useState<Tab>('search')
   const [status, setStatus] = useState<KBStatus | null>(null)
   const [loading, setLoading] = useState(false)
@@ -23,23 +25,37 @@ export default function KnowledgeBase() {
   const [chatQuery, setChatQuery] = useState('')
   const [chatResponse, setChatResponse] = useState<KBChatResponse | null>(null)
   const [chatting, setChatting] = useState(false)
+  const [chatModel, setChatModel] = useState('gpt-oss:120b')
+  const [chatTemp, setChatTemp] = useState(0.7)
+  const [chatTopK, setChatTopK] = useState(40)
+  const [chatMaxTokens, setChatMaxTokens] = useState(2048)
+  const [chatChunks, setChatChunks] = useState(5)
+  const [showChatSettings, setShowChatSettings] = useState(false)
 
-  // Index state
-  const [indexing, setIndexing] = useState(false)
-  const [indexLogs, setIndexLogs] = useState<string[]>([])
   const terminalRef = useRef<HTMLDivElement>(null)
-  const cancelRef = useRef<(() => void) | null>(null)
 
   useEffect(() => {
     loadStatus()
+    // Reconnect to SSE if indexing is already running (e.g. navigated back)
+    if (indexing) {
+      connectEvents()
+    }
+    return () => disconnect()
   }, [])
+
+  // Refresh status when indexing finishes
+  useEffect(() => {
+    if (!indexing && logs.length > 2) {
+      loadStatus()
+    }
+  }, [indexing])
 
   // Auto-scroll terminal
   useEffect(() => {
     if (terminalRef.current) {
       terminalRef.current.scrollTop = terminalRef.current.scrollHeight
     }
-  }, [indexLogs])
+  }, [logs])
 
   async function loadStatus() {
     try {
@@ -51,26 +67,9 @@ export default function KnowledgeBase() {
   }
 
   function handleIndex(force = false) {
-    setIndexing(true)
-    setIndexLogs(['$ ouroboros index-papers' + (force ? ' --force' : ''), ''])
-
-    const cancel = indexKBStream(
-      (event: KBIndexEvent) => {
-        if (event.message) {
-          setIndexLogs(prev => [...prev, event.message!])
-        }
-        if (event.type === 'done') {
-          addToast('success', `Indexed ${event.indexed} PDFs (${event.chunks_added} chunks, ${event.skipped} skipped)`)
-        }
-      },
-      () => {
-        setIndexing(false)
-        loadStatus()
-      },
-      force,
-    )
-
-    cancelRef.current = cancel
+    startIndex(force).then(() => {
+      // Toast will show via logs when done
+    })
   }
 
   async function handleSearch(e: React.FormEvent) {
@@ -95,7 +94,14 @@ export default function KnowledgeBase() {
     setChatting(true)
     setChatResponse(null)
     try {
-      const res = await chatKB(chatQuery.trim())
+      const res = await chatKB({
+        query: chatQuery.trim(),
+        model: chatModel,
+        k: chatChunks,
+        temperature: chatTemp,
+        top_k: chatTopK,
+        max_tokens: chatMaxTokens,
+      })
       setChatResponse(res)
     } catch (e) {
       addToast('error', e instanceof Error ? e.message : 'Chat failed')
@@ -111,7 +117,7 @@ export default function KnowledgeBase() {
       await resetKB()
       setSearchResults([])
       setChatResponse(null)
-      setIndexLogs([])
+      useKnowledgeStore.getState().clearLogs()
       addToast('success', 'Knowledge base reset')
       await loadStatus()
     } catch (e) {
@@ -131,15 +137,25 @@ export default function KnowledgeBase() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
-          <button
-            onClick={() => handleIndex(false)}
-            disabled={indexing}
-            className="btn btn-primary"
-            style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-          >
-            {indexing ? <RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Database size={14} />}
-            {indexing ? 'Indexing...' : 'Index Papers'}
-          </button>
+          {indexing ? (
+            <button
+              onClick={stopIndex}
+              className="btn btn-danger"
+              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+            >
+              <Square size={14} fill="currentColor" />
+              Stop Indexing
+            </button>
+          ) : (
+            <button
+              onClick={() => handleIndex(false)}
+              className="btn btn-primary"
+              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+            >
+              <Database size={14} />
+              Index Papers
+            </button>
+          )}
           <button
             onClick={handleReset}
             disabled={loading || indexing}
@@ -170,7 +186,7 @@ export default function KnowledgeBase() {
       )}
 
       {/* Terminal output */}
-      {indexLogs.length > 0 && (
+      {logs.length > 0 && (
         <div style={{ marginBottom: '20px' }}>
           <div style={{
             display: 'flex', alignItems: 'center', gap: '6px',
@@ -181,7 +197,7 @@ export default function KnowledgeBase() {
             <Terminal size={12} style={{ color: 'var(--text-muted)' }} />
             <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 500 }}>Index Output</span>
             {indexing && <span style={{ fontSize: '10px', color: 'var(--accent-primary)', marginLeft: 'auto' }}>RUNNING</span>}
-            {!indexing && indexLogs.length > 2 && <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginLeft: 'auto' }}>DONE</span>}
+            {!indexing && logs.length > 2 && <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginLeft: 'auto' }}>DONE</span>}
           </div>
           <div
             ref={terminalRef}
@@ -196,7 +212,7 @@ export default function KnowledgeBase() {
               lineHeight: 1.7,
             }}
           >
-            {indexLogs.map((line, i) => {
+            {logs.map((line, i) => {
               let color = 'var(--text-secondary)'
               if (line.startsWith('$')) color = 'var(--accent-purple)'
               else if (line.includes('OK   ')) color = 'var(--accent-primary)'
@@ -283,7 +299,7 @@ export default function KnowledgeBase() {
       {/* Chat tab */}
       {tab === 'chat' && (
         <div>
-          <form onSubmit={handleChat} style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
+          <form onSubmit={handleChat} style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
             <input
               value={chatQuery}
               onChange={e => setChatQuery(e.target.value)}
@@ -291,10 +307,61 @@ export default function KnowledgeBase() {
               className="input"
               style={{ flex: 1 }}
             />
+            <button
+              type="button"
+              onClick={() => setShowChatSettings(!showChatSettings)}
+              className="btn"
+              style={{ padding: '10px', color: showChatSettings ? 'var(--accent-primary)' : 'var(--text-muted)' }}
+              title="Chat settings"
+            >
+              <SlidersHorizontal size={16} />
+            </button>
             <button type="submit" disabled={chatting || !chatQuery.trim()} className="btn btn-primary">
               {chatting ? 'Thinking...' : 'Ask'}
             </button>
           </form>
+
+          {/* Chat settings panel */}
+          {showChatSettings && (
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(5, 1fr)',
+              gap: '12px',
+              marginBottom: '20px',
+              padding: '16px',
+              background: 'rgba(15, 23, 42, 0.5)',
+              backdropFilter: 'blur(16px)',
+              border: '1px solid rgba(255,255,255,0.06)',
+              borderRadius: '14px',
+              fontSize: '12px',
+            }}>
+              <div>
+                <label style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '6px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}>Model</label>
+                <select value={chatModel} onChange={e => setChatModel(e.target.value)} style={{ fontSize: '12px', padding: '8px 10px' }}>
+                  <option value="gpt-oss:120b">gpt-oss:120b</option>
+                  <option value="nemotron-3-nano:latest">nemotron-3-nano</option>
+                  <option value="qwen2.5:14b">qwen2.5:14b</option>
+                  <option value="qwen2.5-coder:32b">qwen2.5-coder:32b</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '6px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}>Temperature</label>
+                <input type="number" min={0} max={2} step={0.1} value={chatTemp} onChange={e => setChatTemp(parseFloat(e.target.value) || 0)} style={{ fontSize: '12px', padding: '8px 10px' }} />
+              </div>
+              <div>
+                <label style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '6px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}>Top K</label>
+                <input type="number" min={1} max={100} value={chatTopK} onChange={e => setChatTopK(parseInt(e.target.value) || 40)} style={{ fontSize: '12px', padding: '8px 10px' }} />
+              </div>
+              <div>
+                <label style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '6px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}>Max Tokens</label>
+                <input type="number" min={256} max={8192} step={256} value={chatMaxTokens} onChange={e => setChatMaxTokens(parseInt(e.target.value) || 2048)} style={{ fontSize: '12px', padding: '8px 10px' }} />
+              </div>
+              <div>
+                <label style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '6px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}>Chunks (k)</label>
+                <input type="number" min={1} max={20} value={chatChunks} onChange={e => setChatChunks(parseInt(e.target.value) || 5)} style={{ fontSize: '12px', padding: '8px 10px' }} />
+              </div>
+            </div>
+          )}
 
           {chatting && (
             <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>

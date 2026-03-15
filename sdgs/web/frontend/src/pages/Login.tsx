@@ -89,10 +89,10 @@ export default function Login() {
           }}>
             <svg viewBox="0 0 100 100" width="32" height="32">
               <path
-                d="M50 15 A35 35 0 1 1 20 65 A25 25 0 1 0 50 30 A15 15 0 1 1 62 50 A8 8 0 1 0 50 45"
+                d="M50 12 C74 12 88 30 88 50 C88 72 72 88 50 88 C28 88 12 72 12 52 C12 34 26 22 42 22 C56 22 66 32 66 46 C66 58 58 66 48 66 C38 66 32 60 32 50 C32 42 38 36 46 36 C52 36 56 40 56 46"
                 fill="none"
                 stroke="#fff"
-                strokeWidth="7"
+                strokeWidth="6"
                 strokeLinecap="round"
                 opacity="0.9"
               />

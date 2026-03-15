@@ -75,26 +75,31 @@ def build_galaxy_data(db: Session, user_id: int) -> dict:
         qa_count_by_dataset[dataset_id] = cnt
 
     # Load a limited sample of QA pairs for graph nodes (not all)
-    MAX_QA_PER_PARENT = 25
+    MAX_QA_PER_PARENT = 8
+    MAX_QA_TOTAL = 2000
     paper_ids = [p.id for p in papers]
     dataset_ids = [ds.id for ds in datasets]
 
     qa_by_paper: dict[int, list] = defaultdict(list)
     qa_by_dataset_only: dict[int, list] = defaultdict(list)
+    qa_total = 0
 
     if paper_ids:
         # Load sampled QA pairs for papers
         sampled_qa = (
             db.query(QAPair)
             .filter(QAPair.user_id == user_id, QAPair.paper_id.in_(paper_ids))
-            .limit(MAX_QA_PER_PARENT * len(paper_ids))
+            .limit(MAX_QA_TOTAL)
             .all()
         )
         for qa in sampled_qa:
+            if qa_total >= MAX_QA_TOTAL:
+                break
             if len(qa_by_paper[qa.paper_id]) < MAX_QA_PER_PARENT:
                 qa_by_paper[qa.paper_id].append(qa)
+                qa_total += 1
 
-    if dataset_ids:
+    if dataset_ids and qa_total < MAX_QA_TOTAL:
         # Load sampled QA pairs for datasets (paper-less ones)
         sampled_ds_qa = (
             db.query(QAPair)
@@ -103,12 +108,15 @@ def build_galaxy_data(db: Session, user_id: int) -> dict:
                 QAPair.paper_id.is_(None),
                 QAPair.dataset_id.in_(dataset_ids),
             )
-            .limit(MAX_QA_PER_PARENT * len(dataset_ids))
+            .limit(MAX_QA_TOTAL - qa_total)
             .all()
         )
         for qa in sampled_ds_qa:
+            if qa_total >= MAX_QA_TOTAL:
+                break
             if len(qa_by_dataset_only[qa.dataset_id]) < MAX_QA_PER_PARENT:
                 qa_by_dataset_only[qa.dataset_id].append(qa)
+                qa_total += 1
 
     # Extract keywords and build paper keyword map
     paper_keywords: dict[int, list[str]] = {}
@@ -195,7 +203,6 @@ def build_galaxy_data(db: Session, user_id: int) -> dict:
         })
 
     # QA nodes + links — capped per paper/dataset to keep graph manageable
-    MAX_QA_PER_PARENT = 25
     qa_links = []
 
     # QAs linked through papers
@@ -273,7 +280,7 @@ def build_galaxy_data(db: Session, user_id: int) -> dict:
                 pair_overlap[key] += 1
 
     for (p1_id, p2_id), overlap in pair_overlap.items():
-        if overlap >= 2:
+        if overlap >= 3:
             links.append({
                 "source": f"paper-{p1_id}",
                 "target": f"paper-{p2_id}",

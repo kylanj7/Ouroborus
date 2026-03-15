@@ -15,20 +15,20 @@ export default function Galaxy() {
     fetchData()
   }, [])
 
-  // Inline graph filtering (replaces useGalaxyGraph hook)
-  const graphData = useMemo(() => {
-    if (!data) return { nodes: [], links: [] }
+  // Split nodes into simulation nodes (papers+datasets) and QA nodes (rendered separately)
+  const { simNodes, simLinks, qaNodes, qaParentMap } = useMemo(() => {
+    if (!data) return { simNodes: [], simLinks: [], qaNodes: [], qaParentMap: new Map() }
 
-    let nodes = [...data.nodes]
-    let links = [...data.links]
+    let allNodes = [...data.nodes]
+    let allLinks = [...data.links]
 
     // Filter by cluster
     if (activeCluster !== null) {
       const clusterNodeIds = new Set(
-        nodes.filter(n => n.cluster === activeCluster).map(n => n.id)
+        allNodes.filter(n => n.cluster === activeCluster).map(n => n.id)
       )
-      nodes = nodes.filter(n => clusterNodeIds.has(n.id))
-      links = links.filter(l => {
+      allNodes = allNodes.filter(n => clusterNodeIds.has(n.id))
+      allLinks = allLinks.filter(l => {
         const src = typeof l.source === 'string' ? l.source : (l.source as any).id
         const tgt = typeof l.target === 'string' ? l.target : (l.target as any).id
         return clusterNodeIds.has(src) && clusterNodeIds.has(tgt)
@@ -38,23 +38,40 @@ export default function Galaxy() {
     // Search highlighting
     if (searchQuery) {
       const q = searchQuery.toLowerCase()
-      nodes = nodes.map(n => ({
+      allNodes = allNodes.map(n => ({
         ...n,
         _match: n.label.toLowerCase().includes(q) ||
           (n.type === 'qa' && n.instruction?.toLowerCase().includes(q)),
       }))
     }
 
-    return { nodes, links }
+    // Separate QA nodes out of the force simulation
+    const sNodes = allNodes.filter(n => n.type !== 'qa')
+    const qNodes = allNodes.filter(n => n.type === 'qa')
+
+    // Build parent map from QA links (paper_qa / dataset_qa)
+    const parentMap = new Map<string, string>()
+    for (const link of allLinks) {
+      if (link.type === 'paper_qa' || link.type === 'dataset_qa') {
+        const src = typeof link.source === 'string' ? link.source : (link.source as any).id
+        const tgt = typeof link.target === 'string' ? link.target : (link.target as any).id
+        parentMap.set(tgt, src)
+      }
+    }
+
+    // Only pass non-QA links to the force simulation
+    const sLinks = allLinks.filter(l => l.type !== 'paper_qa' && l.type !== 'dataset_qa')
+
+    return { simNodes: sNodes, simLinks: sLinks, qaNodes: qNodes, qaParentMap: parentMap }
   }, [data, searchQuery, activeCluster])
 
   // Papers in the selected dataset's cluster (for dataset detail panel)
   const datasetPapers = useMemo(() => {
     if (!selectedNode || selectedNode.type !== 'dataset') return []
-    return graphData.nodes.filter(
+    return simNodes.filter(
       (n: any) => n.type === 'paper' && n.cluster === selectedNode.node.cluster,
     )
-  }, [selectedNode, graphData.nodes])
+  }, [selectedNode, simNodes])
 
   const handleNodeClick = useCallback((node: any) => {
     selectNode(node)
@@ -94,8 +111,10 @@ export default function Galaxy() {
 
       {/* Graph */}
       <GalaxyCanvas
-        nodes={graphData.nodes}
-        links={graphData.links}
+        nodes={simNodes}
+        links={simLinks}
+        qaNodes={qaNodes}
+        qaParentMap={qaParentMap}
         searchQuery={searchQuery}
         onNodeClick={handleNodeClick}
       />
