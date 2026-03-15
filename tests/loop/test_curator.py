@@ -195,3 +195,45 @@ def test_save_dataset_returns_path():
         output_path = Path(tmpdir) / "out.jsonl"
         result = save_dataset([{"instruction": "x", "response": "y"}], output_path)
         assert isinstance(result, Path)
+
+
+# ---------------------------------------------------------------------------
+# test_build_verification_feedback
+# ---------------------------------------------------------------------------
+
+
+def test_build_citation_feedback():
+    from sdgs.loop.curator import build_verification_feedback
+    results = [{"check": "citation", "passed": False, "reason": "Citations not matched: ['Nonexistent']"}]
+    feedback = build_verification_feedback(results, ["Quantum Decoherence", "Bell Inequality"])
+    assert "CITATION ERROR" in feedback
+    assert "Quantum Decoherence" in feedback
+
+
+def test_build_entailment_feedback():
+    from sdgs.loop.curator import build_verification_feedback
+    results = [{"check": "entailment", "passed": False, "reason": "Contradictions found"}]
+    feedback = build_verification_feedback(results, [])
+    assert "FACTUAL ERROR" in feedback
+
+
+def test_build_combined_feedback():
+    from sdgs.loop.curator import build_verification_feedback
+    results = [
+        {"check": "citation", "passed": False, "reason": "bad citation"},
+        {"check": "chunk_tracing", "passed": False, "reason": "ungrounded step"},
+    ]
+    feedback = build_verification_feedback(results, ["Paper A"])
+    assert "CITATION ERROR" in feedback
+    assert "UNGROUNDED CONTENT" in feedback
+
+
+def test_build_feedback_skips_passed():
+    from sdgs.loop.curator import build_verification_feedback
+    results = [
+        {"check": "citation", "passed": True, "reason": "OK"},
+        {"check": "entailment", "passed": False, "reason": "bad"},
+    ]
+    feedback = build_verification_feedback(results, [])
+    assert "CITATION ERROR" not in feedback
+    assert "FACTUAL ERROR" in feedback

@@ -189,6 +189,7 @@ def check_entailment(
     paper_chunks: list[str],
     model_name: str = "microsoft/deberta-v3-base-mnli",
     min_entailment_ratio: float = 0.5,
+    nli_pipeline=None,
 ) -> dict:
     """Verify reasoning steps are entailed by paper chunks using NLI.
 
@@ -200,6 +201,7 @@ def check_entailment(
         paper_chunks: List of paper text chunks.
         model_name: HuggingFace model for zero-shot NLI.
         min_entailment_ratio: Minimum fraction of steps that must be entailed.
+        nli_pipeline: Pre-loaded transformers pipeline. If None, a new one is created.
 
     Returns:
         Dict with "passed" (bool) and "reason" (str).
@@ -207,15 +209,17 @@ def check_entailment(
     if not steps or not paper_chunks:
         return {"passed": True, "reason": "No steps or chunks to verify."}
 
-    try:
-        from transformers import pipeline
-    except ImportError as exc:
-        raise ImportError(
-            "transformers is required for entailment checking. "
-            "Install with: pip install transformers"
-        ) from exc
+    if nli_pipeline is None:
+        try:
+            from transformers import pipeline
+        except ImportError as exc:
+            raise ImportError(
+                "transformers is required for entailment checking. "
+                "Install with: pip install transformers"
+            ) from exc
+        nli_pipeline = pipeline("zero-shot-classification", model=model_name)
 
-    classifier = pipeline("zero-shot-classification", model=model_name)
+    classifier = nli_pipeline
 
     entailed_count = 0
     contradiction_steps: list[str] = []
@@ -325,6 +329,50 @@ def check_chunk_tracing(
 
 
 # ---------------------------------------------------------------------------
+# build_verification_feedback
+# ---------------------------------------------------------------------------
+
+
+def build_verification_feedback(
+    check_results: list[dict],
+    paper_titles: list[str],
+) -> str:
+    """Build specific feedback from verification failures for regeneration.
+
+    Args:
+        check_results: List of dicts with "check" (str), "passed" (bool), "reason" (str).
+        paper_titles: Available paper titles for citation feedback.
+
+    Returns:
+        Combined feedback string.
+    """
+    feedback_parts = []
+    for result in check_results:
+        if result["passed"]:
+            continue
+        check = result["check"]
+        reason = result["reason"]
+        if check == "citation":
+            available = ", ".join(f'"{t}"' for t in paper_titles[:10])
+            feedback_parts.append(
+                f"CITATION ERROR: {reason}\n"
+                f"Available papers: {available}\n"
+                f"Use exact titles from the list above."
+            )
+        elif check == "entailment":
+            feedback_parts.append(
+                f"FACTUAL ERROR: {reason}\n"
+                f"Correct the claims to match the source paper content."
+            )
+        elif check == "chunk_tracing":
+            feedback_parts.append(
+                f"UNGROUNDED CONTENT: {reason}\n"
+                f"Remove or replace steps that are not grounded in the source paper."
+            )
+    return "\n\n".join(feedback_parts)
+
+
+# ---------------------------------------------------------------------------
 # generate_pairs
 # ---------------------------------------------------------------------------
 
@@ -361,6 +409,7 @@ def generate_pairs(
     tracing_threshold = cfg.get("chunk_tracing_threshold", 0.3)
     use_entailment = cfg.get("use_entailment", True)
     use_chunk_tracing = cfg.get("use_chunk_tracing", True)
+    max_retries_per_pair = cfg.get("max_retries_per_pair", 3)
 
     llm = ChatOllama(model=model)
     accepted: list[dict] = []
@@ -376,8 +425,8 @@ def generate_pairs(
             from sentence_transformers import SentenceTransformer
             embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
             for paper in papers:
-                paper_chunks = chunk_paper(paper.get("text", ""))
-                all_chunks.extend(paper_chunks)
+                paper_chunks_for_embed = chunk_paper(paper.get("text", ""))
+                all_chunks.extend(paper_chunks_for_embed)
             if all_chunks:
                 chunk_embeddings = embedding_model.encode(all_chunks).tolist()
         except ImportError:
@@ -386,6 +435,24 @@ def generate_pairs(
 
     paper_titles = [p.get("title", "") for p in papers]
     paper_texts = [p.get("text", "") for p in papers]
+
+    # Pre-compute paper_chunks once for entailment (not per-pair)
+    entailment_paper_chunks: list[str] = []
+    if use_entailment:
+        entailment_paper_chunks = chunk_paper(" ".join(paper_texts[:3]))
+
+    # Load NLI pipeline once if entailment is enabled
+    nli_pipeline = None
+    if use_entailment:
+        try:
+            from transformers import pipeline as hf_pipeline
+            nli_pipeline = hf_pipeline(
+                "zero-shot-classification",
+                model=cfg.get("entailment_model", "microsoft/deberta-v3-base-mnli"),
+            )
+        except ImportError:
+            log.warning("transformers not available -- skipping entailment checks")
+            use_entailment = False
 
     # Build a condensed paper summary for the prompt (avoid token overflow)
     paper_content_parts: list[str] = []
@@ -438,46 +505,101 @@ def generate_pairs(
             if not instruction or not response_text:
                 continue
 
-            reject_reasons: list[str] = []
+            original_prompt = COT_GENERATION_PROMPT.format(
+                num_pairs=1,
+                paper_content=paper_content,
+            )
+            current_pair = pair
+            pair_accepted = False
 
-            # Layer 1: Citation matching
-            citation_result = check_citations(response_text, paper_titles, paper_texts)
-            if not citation_result["passed"]:
-                reject_reasons.append(f"citation: {citation_result['reason']}")
+            for attempt in range(max_retries_per_pair + 1):
+                current_response_text = current_pair.get("response", "").strip()
+                check_results: list[dict] = []
 
-            # Layer 2: NLI entailment
-            if use_entailment and not reject_reasons:
-                steps = split_reasoning_steps(response_text)
-                paper_chunks = chunk_paper(" ".join(paper_texts[:3]))
-                try:
+                # Layer 1: Citation matching
+                citation_result = check_citations(current_response_text, paper_titles, paper_texts)
+                check_results.append({
+                    "check": "citation",
+                    "passed": citation_result["passed"],
+                    "reason": citation_result["reason"],
+                })
+
+                # Layer 2: NLI entailment
+                if use_entailment:
+                    steps = split_reasoning_steps(current_response_text)
                     entailment_result = check_entailment(
                         steps,
-                        paper_chunks,
+                        entailment_paper_chunks,
                         min_entailment_ratio=entailment_threshold,
+                        nli_pipeline=nli_pipeline,
                     )
-                    if not entailment_result["passed"]:
-                        reject_reasons.append(f"entailment: {entailment_result['reason']}")
-                except ImportError:
-                    log.debug("Skipping entailment check -- transformers not available")
+                    check_results.append({
+                        "check": "entailment",
+                        "passed": entailment_result["passed"],
+                        "reason": entailment_result["reason"],
+                    })
 
-            # Layer 3: Chunk tracing
-            if use_chunk_tracing and embedding_model and chunk_embeddings and not reject_reasons:
-                steps = split_reasoning_steps(response_text)
-                tracing_result = check_chunk_tracing(
-                    steps,
-                    chunk_embeddings,
-                    all_chunks,
-                    embedding_model,
-                    threshold=tracing_threshold,
-                )
-                if not tracing_result["passed"]:
-                    reject_reasons.append(f"chunk_tracing: {tracing_result['reason']}")
+                # Layer 3: Chunk tracing
+                if use_chunk_tracing and embedding_model and chunk_embeddings:
+                    steps = split_reasoning_steps(current_response_text)
+                    tracing_result = check_chunk_tracing(
+                        steps,
+                        chunk_embeddings,
+                        all_chunks,
+                        embedding_model,
+                        threshold=tracing_threshold,
+                    )
+                    check_results.append({
+                        "check": "chunk_tracing",
+                        "passed": tracing_result["passed"],
+                        "reason": tracing_result["reason"],
+                    })
 
-            if reject_reasons:
-                pair["reject_reasons"] = reject_reasons
-                rejected.append(pair)
-            else:
-                accepted.append(pair)
+                failed = [r for r in check_results if not r["passed"]]
+                if not failed:
+                    pair_accepted = True
+                    accepted.append(current_pair)
+                    break
+
+                # Failures remain -- attempt self-correction if retries left
+                if attempt < max_retries_per_pair:
+                    feedback = build_verification_feedback(check_results, paper_titles)
+                    regen_prompt = f"""{original_prompt}
+
+PREVIOUS ATTEMPT (rejected):
+{json.dumps(current_pair)}
+
+ERRORS FOUND:
+{feedback}
+
+Generate a corrected version. Fix ALL errors listed above. Respond with JSON:
+{{"instruction": "...", "response": "..."}}"""
+                    try:
+                        regen_response = llm.invoke([HumanMessage(content=regen_prompt)])
+                        regen_raw = (
+                            regen_response.content
+                            if hasattr(regen_response, "content")
+                            else str(regen_response)
+                        )
+                        fence_match = re.search(r"```(?:json)?\s*([\s\S]*?)```", regen_raw)
+                        regen_str = fence_match.group(1).strip() if fence_match else regen_raw.strip()
+                        regen_parsed = json.loads(regen_str)
+                        if isinstance(regen_parsed, list):
+                            regen_parsed = regen_parsed[0]
+                        if isinstance(regen_parsed, dict):
+                            current_pair = regen_parsed
+                    except Exception as exc:
+                        log.warning("Self-correction attempt %d failed: %s", attempt + 1, exc)
+                        break
+
+            if not pair_accepted:
+                reject_reasons = [
+                    f"{r['check']}: {r['reason']}"
+                    for r in check_results
+                    if not r["passed"]
+                ]
+                current_pair["reject_reasons"] = reject_reasons
+                rejected.append(current_pair)
 
         log.info(
             "Iteration %d: accepted=%d rejected=%d (target=%d)",
