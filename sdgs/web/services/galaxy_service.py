@@ -186,7 +186,7 @@ def build_galaxy_data(db: Session, user_id: int) -> dict:
         cid = paper_cluster.get(p.id, 0)
         color = cluster_infos[cid]["color"] if cid < len(cluster_infos) else "#7eb8ff"
         qa_count = qa_count_by_paper[p.id]
-        size = 4 + math.log2(qa_count + 1) * 2 + math.log2((p.citation_count or 0) + 1) * 2
+        size = 2.5 + math.log2(qa_count + 1) * 1.2 + math.log2((p.citation_count or 0) + 1) * 0.8
         nodes.append({
             "id": f"paper-{p.id}",
             "type": "paper",

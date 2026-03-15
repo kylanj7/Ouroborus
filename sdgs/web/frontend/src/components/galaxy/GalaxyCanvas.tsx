@@ -129,16 +129,16 @@ export default function GalaxyCanvas({ nodes, links, qaNodes, qaParentMap, searc
         const charge = fg.d3Force('charge')
         if (charge) {
           charge.strength((node: any) =>
-            node.type === 'dataset' ? -80 : -30
+            node.type === 'dataset' ? -150 : -60
           )
         }
         const link = fg.d3Force('link')
         if (link) {
           link.distance((l: any) =>
-            l.type === 'dataset_paper' ? 30 : 50
+            l.type === 'dataset_paper' ? 80 : 60
           )
           link.strength((l: any) =>
-            l.type === 'dataset_paper' ? 0.3 : 0.1
+            l.type === 'dataset_paper' ? 0.15 : 0.05
           )
         }
         forcesApplied.current = true
