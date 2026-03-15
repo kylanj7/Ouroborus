@@ -29,6 +29,12 @@ web = [
     "anthropic>=0.40",
     "wandb>=0.16",
 ]
+loop = [
+    "langchain>=0.3",
+    "langchain-ollama>=0.3",
+    "lm-eval>=0.4",
+    "sentence-transformers>=3.0",
+]
 
 [tool.setuptools.packages.find]
 include = ["sdgs*"]
