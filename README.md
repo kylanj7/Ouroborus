@@ -6,10 +6,12 @@ Full-stack platform for synthetic dataset generation, model fine-tuning, evaluat
 ## Features
 
 - **Multi-provider dataset generation** -- plug in any OpenAI-compatible LLM (Ollama, OpenAI, Anthropic, Gemini, Perplexity)
-- **Paper-based pipelines** -- search Semantic Scholar + arXiv, fetch full text, generate Q&A pairs
-- **Web UI** -- dataset management, training dashboard, evaluation viewer, 3D knowledge galaxy
+- **Paper-based pipelines** -- search Semantic Scholar, arXiv, OpenAlex, and CORE; fetch full text, generate Q&A pairs
+- **Knowledge base** -- ChromaDB-backed semantic search and RAG chat over indexed PDFs with persistent background indexing
+- **Web UI** -- glassmorphism dashboard, dataset management, training controls, evaluation viewer, 3D knowledge galaxy
+- **3D Galaxy visualizer** -- GPU-instanced rendering of papers, datasets, and Q&A pairs with force-directed layout
 - **Config-driven fine-tuning** -- LoRA training with YAML configs for models, datasets, and hyperparameters
-- **Live training controls** -- adjust learning rate mid-run, cancel jobs, stream metrics via SSE
+- **Live training controls** -- adjust learning rate mid-run, cancel jobs, stream metrics via SSE/WebSocket
 - **RAG-grounded evaluation** -- judge models score responses against paper sources
 - **Correction agent** -- Claude identifies and rewrites failing samples back into the training set
 - **Merge and quantize** -- LoRA merge + GGUF conversion in one step
@@ -110,11 +112,14 @@ sdgs serve
 Open `http://localhost:8000` in your browser. Register an account, then:
 
 1. **Create a dataset** -- pick a topic and provider, watch Q&A pairs stream in
-2. **Start training** -- select a model config (e.g. `qwen2.5-7b-instruct`) and training config
-3. **Evaluate** -- run a judge model against test samples with RAG grounding
-4. **Correct** -- trigger the Claude correction agent on failing samples
-5. **Convert** -- merge LoRA adapter and quantize to GGUF
-6. **Push** -- upload your model or dataset to HuggingFace
+2. **Browse papers** -- search, filter by topic, scrape new papers from multiple academic sources
+3. **Index knowledge base** -- embed PDFs into ChromaDB for semantic search and RAG chat (progress persists across pages)
+4. **Explore the Galaxy** -- 3D force-directed visualization of papers, datasets, and Q&A relationships
+5. **Start training** -- select a model config (e.g. `qwen2.5-7b-instruct`) and training config
+6. **Evaluate** -- run a judge model against test samples with RAG grounding
+7. **Correct** -- trigger the Claude correction agent on failing samples
+8. **Convert** -- merge LoRA adapter and quantize to GGUF
+9. **Push** -- upload your model or dataset to HuggingFace
 
 ## Architecture
 
@@ -124,6 +129,10 @@ CLI Pipeline:
 
 Web Pipeline:
   create dataset -> fine-tune -> evaluate -> correct -> merge/convert -> push to HF
+
+Knowledge Base:
+  PDFs -> chunk (RecursiveCharacterTextSplitter) -> embed (MiniLM-L6-v2) -> ChromaDB
+       -> semantic search / RAG chat (Ollama)
 
 Evolution Loop:
   generate -> format -> install config -> train -> convert -> evaluate -> analyze
@@ -156,17 +165,19 @@ The web server exposes a REST API under `/api/`:
 |------|-----------|
 | **Auth** | `POST /api/auth/register`, `/login`, `/refresh` |
 | **Datasets** | CRUD, batch create, create from papers, import from HF, push to HF |
+| **Papers** | List, search, filter by topic, bulk delete, stream scrape from multiple sources |
+| **Knowledge** | `POST /api/knowledge/index`, `GET /api/knowledge/index/events` (SSE), search, RAG chat, reset |
 | **Training** | Start, list, detail, cancel, knobs (live LR adjustment) |
 | **Evaluation** | Start, list, detail with per-sample results, correction agent |
 | **Convert** | `POST /api/training/convert` -- LoRA merge + GGUF (synchronous) |
 | **Push** | `POST /api/training/push` -- upload GGUF or merged model to HF |
 | **Configs** | `GET /api/training/configs/{type}` -- list YAML configs |
 | **Artifacts** | `GET /api/training/artifacts` -- list adapters, GGUFs, checkpoints |
-| **Papers** | List, search, filter by topic, download PDFs |
 | **Galaxy** | `GET /api/galaxy/data` -- 3D knowledge graph data |
 | **Settings** | Encrypted API key storage for all providers |
 | **Loop** | Start, stop, status, list evolution loops |
-| **SSE** | `/api/events/datasets/{id}`, `/api/events/training/{id}` -- live progress |
+| **SSE** | `/api/events/datasets/{id}`, `/api/events/training/{id}`, `/api/knowledge/index/events` |
+| **WebSocket** | `/ws/pulse/{run_type}/{run_id}` -- real-time training metrics |
 
 ## Configuration
 
@@ -230,6 +241,7 @@ evaluation:
 ```
 sdgs/
   cli.py              # Click CLI entry point
+  classify.py          # Paper topic classification
   providers.py         # Provider registry and client factory
   generate.py          # Core generation logic with token tracking
   scrape.py            # Scholarly paper search and full-text extraction
@@ -252,8 +264,8 @@ sdgs/
     auth.py            # JWT authentication and encryption
     schemas.py         # Pydantic request/response models
     db/                # SQLAlchemy models and database setup
-    routers/           # API endpoints (auth, datasets, training, galaxy, etc.)
-    services/          # Background job runner, broadcasting, dataset/galaxy services
+    routers/           # API endpoints (auth, datasets, training, galaxy, knowledge, etc.)
+    services/          # Background job runner, broadcasting, dataset/galaxy/knowledge services
     engine/            # Training engine
       trainer.py       # SFT training with LoRA and live metrics
       evaluator.py     # RAG-grounded judge evaluation
@@ -263,8 +275,9 @@ sdgs/
       training_service.py  # Metrics streaming and knob adjustment
       configs/         # YAML configs for models, datasets, training
     frontend/          # React + TypeScript SPA
-      src/pages/       # Datasets, Training, Evaluations, Galaxy, Loop, Settings
-      src/components/  # Galaxy 3D canvas, dataset cards, layout
+      src/pages/       # Dashboard, Datasets, Training, Evaluations, Galaxy, KnowledgeBase, Loop, Settings
+      src/components/  # Galaxy 3D canvas, IndexingBanner, dataset cards, layout
+      src/store/       # Zustand stores (auth, datasets, training, loop, galaxy, knowledge, toast)
 
 configs/
   providers/           # One YAML per LLM provider
@@ -276,5 +289,3 @@ configs/
 ## License
 
 MIT
-
-
