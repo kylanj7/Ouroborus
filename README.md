@@ -47,58 +47,7 @@ pip install -e ".[gpu]"
 pip install -e ".[dev]"
 ```
 
-## Quick Start: CLI Pipeline
-
-### Paper-based generation
-
-```bash
-# Search papers, fetch content, generate Q&A -- all in one step
-sdgs scrape --topic "reinforcement learning" --provider openai --model gpt-4o \
-  --max-papers 20 --top-n 5 -o data/rl_dataset.jsonl
-
-# Collect paper metadata only (no generation)
-sdgs scrape --topic "protein folding" --max-papers 50 --collect-only -o data/papers.json
-
-# Use local Ollama
-sdgs scrape --topic "transformer attention" --provider ollama --model qwen3:32b \
-  --max-papers 10 --top-n 3 -o data/attention.jsonl
-```
-
-### Extract-based generation
-
-```bash
-# Extract from HuggingFace or local files
-sdgs extract --task quantum_reasoning --output data/quantum.json
-
-# Test with a few samples
-sdgs generate --task quantum_reasoning --provider anthropic -i data/quantum.json --test 3
-
-# Full generation
-sdgs generate --task quantum_reasoning --provider anthropic -i data/quantum.json -o data/output.jsonl
-
-# Filter and inspect
-sdgs filter data/output.jsonl --task quantum_reasoning
-sdgs qa data/output_filtered.jsonl --stats
-```
-
-### Evolution loop
-
-```bash
-# Start the web server first
-sdgs serve
-
-# Run the autonomous loop
-sdgs loop start --config configs/loop_quick_test.yaml
-
-# Monitor progress
-sdgs loop status
-
-# Graceful stop
-sdgs loop stop
-
-# View history
-sdgs loop history
-```
+## Quick Start
 
 ### Closed-loop self-feeding training
 
@@ -106,19 +55,187 @@ sdgs loop history
 # Install loop dependencies
 pip install -e ".[loop]"
 
-# Start a closed-loop run (benchmarks -> diagnose -> retrieve -> curate -> train -> merge -> eval -> gate)
+# Start a closed-loop run
 sdgs closed-loop start --config configs/closed_loop.yaml
-
-# Monitor progress
-sdgs closed-loop status
-
-# Graceful stop
-sdgs closed-loop stop
 ```
 
-The closed loop runs entirely locally via Ollama. It benchmarks the model (GPQA, MMLU, SciBench), uses a LangChain tally agent to diagnose failures, retrieves papers on weak areas, generates chain-of-thought reasoning datasets with 3-layer verification, trains via merge-and-continue LoRA, and gates each cycle on benchmark improvement (>= 0.5pp to keep, rollback otherwise).
+### Web UI
 
-## Quick Start: Web UI
+The primary interface for dataset management, training, evaluation, and visualization.
+
+## How the Closed Loop Works
+
+The closed loop is an autonomous system that teaches a small model (7-8B parameters) to reason at an expert level on a single domain. It does this by repeatedly finding what the model doesn't know, retrieving papers that contain that knowledge, generating training data from those papers, and training the model on that data. Every cycle, the model gets smarter -- or the cycle is discarded and retried with a different approach.
+
+### The Cycle
+
+```
+                          +------------------+
+                          |  [0] BASELINE    |  Run benchmarks on the unmodified model.
+                          |  Establish       |  This is the starting score -- the number
+                          |  starting scores |  to beat.
+                          +--------+---------+
+                                   |
+                    +--------------v---------------+
+                    |  [1] TALLY                    |  A LangChain agent (gpt-oss:120b via
+                    |  Diagnose failures            |  Ollama) reads every question the model
+                    |                               |  got wrong. It doesn't just count
+                    |  "Why did the model fail?"    |  failures -- it clusters them by
+                    |  "What knowledge is missing?" |  knowledge gap. Example: "Model confuses
+                    |  "What should we teach it?"   |  T1/T2 decoherence timescales" rather
+                    |                               |  than just "quantum physics is weak."
+                    |  Outputs: failure clusters,   |
+                    |  search queries, generation   |  It also avoids re-targeting gaps that
+                    |  guidance                     |  were already fixed in prior cycles.
+                    +--------------+----------------+
+                                   |
+                    +--------------v---------------+
+                    |  [2] RETRIEVE                 |  Semantic Scholar and arXiv APIs
+                    |  Find papers on weak areas    |  retrieve papers matching the tally
+                    |                               |  agent's search queries. Full text
+                    |  Sources:                     |  is extracted from PDFs via PyMuPDF.
+                    |  - Semantic Scholar API        |
+                    |  - arXiv API                  |  Only papers relevant to the diagnosed
+                    |                               |  knowledge gaps are retrieved.
+                    +--------------+----------------+
+                                   |
+                    +--------------v---------------+
+                    |  [3] CURATE                   |  gpt-oss:120b reads the papers and
+                    |  Generate chain-of-thought    |  generates reasoning training pairs.
+                    |  training data                |  Every response includes a full
+                    |                               |  derivation chain, not just an answer.
+                    |  3-layer verification:        |
+                    |  [A] Citation matching --     |  Each generated pair is verified:
+                    |      inline citations must    |  citations must resolve to real paper
+                    |      resolve to real content  |  content, NLI confirms no contradictions,
+                    |  [B] NLI entailment --        |  and embedding similarity ensures each
+                    |      DeBERTa checks claims    |  reasoning step is grounded in the
+                    |      against paper text       |  source material.
+                    |  [C] Chunk tracing --         |
+                    |      embedding similarity     |  Pairs that fail any check are discarded.
+                    |      (MiniLM-L6-v2) confirms  |  1,000+ verified pairs per cycle minimum,
+                    |      grounding                |  no upper cap.
+                    +--------------+----------------+
+                                   |
+                    +--------------v---------------+
+                    |  [4] TRAIN                    |  LoRA fine-tuning (4-bit quantized,
+                    |  LoRA fine-tune on curated    |  nf4) on the curated dataset.
+                    |  dataset                      |  3 epochs, cosine LR schedule.
+                    |                               |  Fresh LoRA adapter each cycle --
+                    |                               |  no adapter stacking.
+                    +--------------+----------------+
+                                   |
+                    +--------------v---------------+
+                    |  [5] MERGE                    |  The LoRA adapter is merged into the
+                    |  Merge adapter into base      |  base model weights. After this, the
+                    |  model weights                |  adapter is gone -- its knowledge is
+                    |                               |  baked permanently into the model.
+                    |  merge_and_unload() -> save   |
+                    |  as HF format checkpoint      |  The merged model is saved as a
+                    |                               |  versioned checkpoint (base-v1, v2...).
+                    +--------------+----------------+
+                                   |
+                    +--------------v---------------+
+                    |  [6] EVALUATE                 |  The merged model is benchmarked on
+                    |  Benchmark the merged model   |  the same tests used for baseline.
+                    |                               |
+                    |  Benchmarks (via lm-eval):    |  GPQA Diamond: PhD-level science
+                    |  - GPQA Diamond               |  reasoning. Used by OpenAI, Anthropic,
+                    |  - MMLU college_physics       |  and Google to measure frontier model
+                    |  - MMLU conceptual_physics    |  scientific capability.
+                    |  - SciBench                   |
+                    |                               |  MMLU: Massive Multitask Language
+                    |  Gate metric:                 |  Understanding. Standard benchmark
+                    |  average of all 4 scores      |  for knowledge across 57 subjects.
+                    |                               |  We use the physics subsets.
+                    |                               |
+                    |                               |  SciBench: University-level science
+                    |                               |  calculation problems requiring
+                    |                               |  step-by-step reasoning.
+                    +--------------+----------------+
+                                   |
+                    +--------------v---------------+
+                    |  [7] GATE                     |  Did the average benchmark score
+                    |  Quality control              |  improve by >= 0.5 percentage points?
+                    |                               |
+                    |  >= 0.5pp improvement:        |  YES: Keep the merged model. It becomes
+                    |    KEEP merged model           |  the new base for the next cycle.
+                    |    -> new base for next cycle  |  Old checkpoints cleaned up (keep
+                    |                               |  last 5 + original).
+                    |  < 0.5pp or regression:       |
+                    |    ROLLBACK                   |  NO: Delete the merged model. Roll back
+                    |    -> delete merged model      |  to the previous checkpoint. The tally
+                    |    -> revert to last good      |  agent will diagnose differently next
+                    |       checkpoint               |  cycle and generate different data.
+                    |                               |
+                    |  3 consecutive failures:      |  FAIL CAP: If the same base model fails
+                    |    -> email analysis report    |  3 times in a row, email a diagnostic
+                    |    -> pause for human review   |  report and pause for human review.
+                    +--------------+----------------+
+                                   |
+                                   |  Loop back to [1] TALLY
+                                   |  with the new (or same) base model
+                                   v
+```
+
+### Merge-and-Continue
+
+Each successful cycle permanently improves the model's weights:
+
+```
+Cycle 1: Original Qwen 7B + LoRA -> merge -> Base v1 (knows basic QM)
+Cycle 2: Base v1 + LoRA -> merge -> Base v2 (+ perturbation theory)
+Cycle 3: Base v2 + LoRA -> merge -> FAIL -> rollback to Base v2
+Cycle 4: Base v2 + LoRA (different data) -> merge -> Base v3 (+ entanglement)
+```
+
+The model never gets worse. Failed cycles are discarded, not merged. The original base model is always preserved as the ultimate fallback.
+
+### Benchmarks
+
+The loop uses three public benchmarks via the [EleutherAI lm-eval harness](https://github.com/EleutherAI/lm-evaluation-harness):
+
+| Benchmark | What It Tests | Level | Source |
+|-----------|--------------|-------|--------|
+| [**GPQA Diamond**](https://arxiv.org/abs/2311.12022) | Graduate-level science reasoning -- questions written by domain experts that PhD students in other fields struggle with | PhD | Rein et al., 2023 |
+| [**MMLU**](https://arxiv.org/abs/2009.03300) (physics subsets) | Massive Multitask Language Understanding -- 57 subjects from elementary to professional level. We use `college_physics` and `conceptual_physics` | Undergrad | Hendrycks et al., 2021 |
+| [**SciBench**](https://arxiv.org/abs/2307.10635) | University-level textbook problems requiring multi-step calculation and scientific reasoning | University | Wang et al., 2023 |
+
+The gate metric is a simple average of all four benchmark task scores: `(GPQA + MMLU_college + MMLU_conceptual + SciBench) / 4`.
+
+### Verification Pipeline
+
+Every generated training pair passes three checks before being accepted:
+
+| Check | Model | What It Verifies |
+|-------|-------|-----------------|
+| **Citation matching** | String matching | Inline citations like `[Paper: "Title", Section 3]` resolve to real paper content |
+| **NLI entailment** | `deberta-v3-base-mnli` (~350MB) | No claim in the reasoning chain contradicts the source paper. At least 50% of claims must be positively entailed |
+| **Chunk tracing** | `all-MiniLM-L6-v2` (~80MB) | Each reasoning step has cosine similarity >= 0.3 with at least one chunk from the source papers |
+
+Pairs failing any check are discarded to `curation_rejects.jsonl` for debugging. If accepted pairs fall below the minimum (1,000), more are generated and re-verified.
+
+### VRAM Management
+
+The loop runs on a single GPU. Models are loaded and unloaded sequentially -- only one large model in VRAM at a time:
+
+```
+TALLY + CURATE:  gpt-oss:120b (via Ollama)     + verification models (~430MB)
+TRAIN:           7-8B base (4-bit, ~5GB)        + LoRA adapter
+MERGE:           7-8B base (FP16, ~14-16GB)     + adapter for merge
+EVALUATE:        merged model (HF format)        via lm-eval
+```
+
+### Termination
+
+The loop stops when any of these conditions are met:
+
+| Condition | Default | What Happens |
+|-----------|---------|-------------|
+| Target reached | 85% average benchmark score | Stop, report success |
+| Fail cap | 3 consecutive gate failures | Email report to operator, pause |
+| Max cycles | 50 | Stop, report final state |
+| Manual stop | `sdgs closed-loop stop` | Graceful halt after current stage |
 
 ```bash
 # Install web dependencies
@@ -172,21 +289,12 @@ Closed Loop (self-feeding):
 
 | Command | Purpose |
 |---------|---------|
-| `sdgs scrape` | Search papers, fetch content, generate Q&A |
-| `sdgs extract` | Pull data from HuggingFace or local files |
-| `sdgs generate` | Generate reasoning datasets with any provider |
-| `sdgs filter` | Heal broken outputs and validate quality |
-| `sdgs qa` | Inspect samples and view statistics |
-| `sdgs providers` | List available LLM providers |
-| `sdgs tasks` | List available task configs |
 | `sdgs serve` | Launch the web interface |
-| `sdgs loop start` | Start an evolution loop |
-| `sdgs loop status` | Show current loop status |
-| `sdgs loop stop` | Gracefully stop the running loop |
-| `sdgs loop history` | View past loop runs |
 | `sdgs closed-loop start` | Start a closed-loop self-feeding training run |
 | `sdgs closed-loop status` | Show closed-loop status |
 | `sdgs closed-loop stop` | Gracefully stop the closed loop |
+
+Additional CLI tools for scripting: `sdgs scrape`, `sdgs generate`, `sdgs filter`, `sdgs qa`, `sdgs extract`.
 
 ## Web API
 
