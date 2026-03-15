@@ -74,7 +74,7 @@ export default function Datasets() {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
         <div>
-          <h1>Your Datasets</h1>
+          <h1>QA Datasets</h1>
           <p>{total} dataset{total !== 1 ? 's' : ''}</p>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
@@ -144,7 +144,7 @@ export default function Datasets() {
               marginTop: '8px',
               fontSize: '13px',
               color: 'var(--accent-pink)',
-              background: 'rgba(255, 126, 179, 0.1)',
+              background: 'rgba(239, 68, 68, 0.1)',
               padding: '6px 10px',
               borderRadius: 'var(--radius-sm)',
             }}>
@@ -183,9 +183,10 @@ export default function Datasets() {
             flexDirection: 'column',
             gap: '12px',
             padding: '16px',
-            background: 'var(--bg-card)',
-            border: '1px solid var(--border-subtle)',
-            borderRadius: 'var(--radius-md)',
+            background: 'rgba(15, 23, 42, 0.4)',
+            backdropFilter: 'blur(16px)',
+            border: '1px solid rgba(255,255,255,0.06)',
+            borderRadius: '18px',
           }}>
             {datasets.map((ds) => (
               <DatasetCard

@@ -3,13 +3,13 @@ import { useToastStore, Toast } from '../../store/toastStore'
 
 const colorMap: Record<Toast['type'], { bg: string; border: string; text: string }> = {
   success: {
-    bg: 'rgba(118, 185, 0, 0.1)',
-    border: 'rgba(118, 185, 0, 0.3)',
+    bg: 'rgba(34, 197, 94, 0.1)',
+    border: 'rgba(34, 197, 94, 0.3)',
     text: 'var(--accent-green)',
   },
   error: {
-    bg: 'rgba(248, 81, 73, 0.1)',
-    border: 'rgba(248, 81, 73, 0.3)',
+    bg: 'rgba(239, 68, 68, 0.1)',
+    border: 'rgba(239, 68, 68, 0.3)',
     text: 'var(--status-failed)',
   },
   info: {
@@ -34,6 +34,7 @@ export default function ToastContainer() {
       flexDirection: 'column',
       gap: '8px',
       maxWidth: '400px',
+      pointerEvents: 'none',
     }}>
       {toasts.map((t) => {
         const c = colorMap[t.type]
@@ -52,6 +53,7 @@ export default function ToastContainer() {
               justifyContent: 'space-between',
               gap: '10px',
               animation: 'fadeIn 0.2s ease',
+              pointerEvents: 'auto',
             }}
           >
             <span>{t.message}</span>

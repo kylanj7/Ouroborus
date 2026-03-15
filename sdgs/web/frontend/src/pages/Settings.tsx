@@ -171,8 +171,8 @@ export default function Settings() {
 
       {message && (
         <div style={{
-          background: 'rgba(110, 231, 216, 0.1)',
-          border: '1px solid rgba(110, 231, 216, 0.3)',
+          background: 'rgba(34, 197, 94, 0.1)',
+          border: '1px solid rgba(34, 197, 94, 0.3)',
           borderRadius: 'var(--radius-sm)',
           padding: '8px 12px',
           color: 'var(--accent-blue)',

@@ -219,7 +219,7 @@ export default function GalaxyCanvas({ nodes, links, searchQuery, onNodeClick }:
 
     // Per-instance colors (with search dimming)
     for (let i = 0; i < count; i++) {
-      _tmpColor.set(qaNodes[i].color || '#6ee7d8')
+      _tmpColor.set(qaNodes[i].color || '#22c55e')
       if (searchQuery && !qaNodes[i]._match) {
         _tmpColor.multiplyScalar(0.15)
       }
@@ -270,7 +270,7 @@ export default function GalaxyCanvas({ nodes, links, searchQuery, onNodeClick }:
 
   // ── Node renderer ─────────────────────────────────────────────────
   const nodeThreeObject = useCallback((node: any) => {
-    const color = node.color || '#7eb8ff'
+    const color = node.color || '#3b82f6'
     const size = node.size || 4
     const dimmed = searchQuery && !node._match
     const opacity = dimmed ? 0.15 : 1
@@ -303,8 +303,8 @@ export default function GalaxyCanvas({ nodes, links, searchQuery, onNodeClick }:
   // ── Tooltip ───────────────────────────────────────────────────────
   const getNodeLabel = useCallback((node: any) => {
     if (node.type === 'dataset') {
-      return `<div style="background:rgba(10,10,30,0.9);padding:8px 12px;border-radius:6px;border:1px solid rgba(126,184,255,0.3);max-width:300px">
-        <div style="color:#7eb8ff;font-weight:600;margin-bottom:4px">Dataset</div>
+      return `<div style="background:rgba(10,10,30,0.9);padding:8px 12px;border-radius:6px;border:1px solid rgba(59,130,246,0.3);max-width:300px">
+        <div style="color:#3b82f6;font-weight:600;margin-bottom:4px">Dataset</div>
         <div style="color:#e8e8f0">${node.label}</div>
         <div style="color:#888;font-size:12px;margin-top:4px">${node.abstract || ''}</div>
       </div>`
@@ -312,16 +312,16 @@ export default function GalaxyCanvas({ nodes, links, searchQuery, onNodeClick }:
     if (node.type === 'qa') {
       const instruction = node.instruction || node.label || ''
       const answer = node.answer_text || ''
-      return `<div style="background:rgba(10,10,30,0.95);padding:10px 14px;border-radius:6px;border:1px solid rgba(110,231,216,0.3);max-width:350px">
+      return `<div style="background:rgba(10,10,30,0.95);padding:10px 14px;border-radius:6px;border:1px solid rgba(34,197,94,0.3);max-width:350px">
         <div style="color:#ffd666;font-weight:600;font-size:11px;margin-bottom:6px">Q&A</div>
         <div style="color:#e8e8f0;font-size:13px;margin-bottom:8px">${instruction.length > 200 ? instruction.slice(0, 200) + '...' : instruction}</div>
         ${answer ? `<div style="color:#a8a8b8;font-size:12px;border-top:1px solid rgba(255,255,255,0.1);padding-top:6px">${answer.length > 150 ? answer.slice(0, 150) + '...' : answer}</div>` : ''}
-        ${node.is_valid ? '<div style="margin-top:4px"><span style="background:rgba(110,231,216,0.15);color:#6ee7d8;font-size:10px;padding:2px 6px;border-radius:3px">valid</span></div>' : ''}
+        ${node.is_valid ? '<div style="margin-top:4px"><span style="background:rgba(34,197,94,0.15);color:#22c55e;font-size:10px;padding:2px 6px;border-radius:3px">valid</span></div>' : ''}
       </div>`
     }
     const qaCount = node.qa_pair_count != null ? node.qa_pair_count : 0
-    return `<div style="background:rgba(10,10,30,0.9);padding:8px 12px;border-radius:6px;border:1px solid rgba(126,184,255,0.3);max-width:300px">
-      <div style="color:#6ee7d8;font-weight:600;margin-bottom:4px">Paper</div>
+    return `<div style="background:rgba(10,10,30,0.9);padding:8px 12px;border-radius:6px;border:1px solid rgba(59,130,246,0.3);max-width:300px">
+      <div style="color:#22c55e;font-weight:600;margin-bottom:4px">Paper</div>
       <div style="color:#e8e8f0">${node.label}</div>
       <div style="color:#888;font-size:12px;margin-top:4px">Year: ${node.year || 'N/A'} | Citations: ${node.citation_count || 0} | Q&A pairs: ${qaCount}</div>
     </div>`
@@ -329,7 +329,7 @@ export default function GalaxyCanvas({ nodes, links, searchQuery, onNodeClick }:
 
   // ── Render ────────────────────────────────────────────────────────
   return (
-    <div ref={containerRef} style={{ width: '100%', height: '100%', background: '#06060f' }}>
+    <div ref={containerRef} style={{ width: '100%', height: '100%', background: '#020617' }}>
       {nodes.length === 0 ? (
         <div className="empty-state" style={{ paddingTop: '200px' }}>
           <h3>No data in Galaxy</h3>
@@ -345,10 +345,10 @@ export default function GalaxyCanvas({ nodes, links, searchQuery, onNodeClick }:
           nodeThreeObject={nodeThreeObject}
           nodeThreeObjectExtend={false}
           linkColor={(link: any) => {
-            if (link.type === 'dataset_paper') return 'rgba(126, 184, 255, 0.25)'
-            if (link.type === 'paper_qa' || link.type === 'dataset_qa') return 'rgba(110, 231, 216, 0.2)'
+            if (link.type === 'dataset_paper') return 'rgba(59, 130, 246, 0.25)'
+            if (link.type === 'paper_qa' || link.type === 'dataset_qa') return 'rgba(34, 197, 94, 0.2)'
             if (link.type === 'keyword') return 'rgba(255, 214, 102, 0.15)'
-            return 'rgba(126, 184, 255, 0.1)'
+            return 'rgba(59, 130, 246, 0.1)'
           }}
           linkWidth={(link: any) =>
             link.type === 'paper_qa' || link.type === 'dataset_qa' ? 0.8 : link.weight * 2
@@ -361,7 +361,7 @@ export default function GalaxyCanvas({ nodes, links, searchQuery, onNodeClick }:
           d3AlphaDecay={0.015}
           d3VelocityDecay={0.3}
           d3AlphaMin={0.001}
-          backgroundColor="#06060f"
+          backgroundColor="#020617"
           showNavInfo={false}
         />
       )}

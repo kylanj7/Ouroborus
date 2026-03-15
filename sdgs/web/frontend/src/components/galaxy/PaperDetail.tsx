@@ -59,7 +59,7 @@ export default function PaperDetailPanel({ paper, onClose }: Props) {
             {hasLongAuthors && (
               <button onClick={() => setShowAuthors(!showAuthors)} style={{
                 background: 'none', border: 'none', cursor: 'pointer',
-                color: 'var(--accent-blue, #7eb8ff)', fontSize: '12px',
+                color: 'var(--accent-blue, #3b82f6)', fontSize: '12px',
                 padding: '4px 0 0', display: 'flex', alignItems: 'center', gap: '2px',
               }}>
                 {showAuthors ? <><ChevronUp size={12} /> Show less</> : <><ChevronDown size={12} /> Show all {paper.authors.length} authors</>}
@@ -102,7 +102,7 @@ export default function PaperDetailPanel({ paper, onClose }: Props) {
             {paper.abstract.length > 150 && (
               <button onClick={() => setShowAbstract(!showAbstract)} style={{
                 background: 'none', border: 'none', cursor: 'pointer',
-                color: 'var(--accent-blue, #7eb8ff)', fontSize: '12px',
+                color: 'var(--accent-blue, #3b82f6)', fontSize: '12px',
                 padding: '4px 0 0', display: 'flex', alignItems: 'center', gap: '2px',
               }}>
                 {showAbstract ? <><ChevronUp size={12} /> Show less</> : <><ChevronDown size={12} /> Show more</>}
@@ -131,7 +131,7 @@ export default function PaperDetailPanel({ paper, onClose }: Props) {
               {qa.answer_text && (
                 <div style={{
                   fontSize: '12px', color: 'var(--text-secondary)',
-                  background: 'rgba(110, 231, 216, 0.05)',
+                  background: 'rgba(34, 197, 94, 0.05)',
                   padding: '8px', borderRadius: 'var(--radius-sm)',
                   maxHeight: '120px', overflow: 'auto',
                 }}>

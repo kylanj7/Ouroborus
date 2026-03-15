@@ -40,7 +40,7 @@ export default function GalaxyControls({
               onClick={() => onToggleCluster(null)}
               style={{
                 fontSize: '12px', padding: '4px 10px',
-                background: activeCluster === null ? 'rgba(126, 184, 255, 0.15)' : undefined,
+                background: activeCluster === null ? 'rgba(59, 130, 246, 0.15)' : undefined,
               }}
             >
               All

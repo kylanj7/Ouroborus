@@ -252,8 +252,8 @@ export default function PushModel() {
 
           {error && (
             <div style={{
-              background: 'rgba(255, 126, 179, 0.1)',
-              border: '1px solid rgba(255, 126, 179, 0.3)',
+              background: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
               borderRadius: 'var(--radius-sm)',
               padding: '8px 12px',
               color: 'var(--accent-pink)',

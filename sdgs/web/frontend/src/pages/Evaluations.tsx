@@ -193,7 +193,7 @@ export default function Evaluations() {
               marginTop: '8px',
               fontSize: '13px',
               color: 'var(--accent-pink)',
-              background: 'rgba(255, 126, 179, 0.1)',
+              background: 'rgba(239, 68, 68, 0.1)',
               padding: '6px 10px',
               borderRadius: 'var(--radius-sm)',
             }}>

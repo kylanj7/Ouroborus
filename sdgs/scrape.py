@@ -120,7 +120,7 @@ def _search_arxiv(topic: str, max_results: int) -> list[dict]:
     return papers
 
 
-def _search_semantic_scholar(topic: str, max_results: int, s2_api_key: str | None = None) -> list[dict]:
+def _search_semantic_scholar(topic: str, max_results: int, s2_api_key: str | None = None, year_min: int | None = None, year_max: int | None = None) -> list[dict]:
     """Search Semantic Scholar API and return paper metadata dicts."""
     papers = []
     try:
@@ -131,6 +131,9 @@ def _search_semantic_scholar(topic: str, max_results: int, s2_api_key: str | Non
             "limit": min(max_results, 100),
             "fields": "paperId,title,authors,abstract,year,externalIds,url,citationCount,isOpenAccess,openAccessPdf",
         }
+        # S2 supports year range filter: "year": "2017-2023" or "year": "2017-" or "year": "-2017"
+        if year_min or year_max:
+            params["year"] = f"{year_min or ''}-{year_max or ''}"
         headers = {}
         s2_key = s2_api_key or os.environ.get("S2_API_KEY")
         if s2_key:
@@ -172,7 +175,7 @@ def _search_semantic_scholar(topic: str, max_results: int, s2_api_key: str | Non
     return papers
 
 
-def _search_openalex(topic: str, max_results: int) -> list[dict]:
+def _search_openalex(topic: str, max_results: int, year_min: int | None = None, year_max: int | None = None) -> list[dict]:
     """Search OpenAlex API (free, no key required) and return paper metadata dicts."""
     papers = []
     try:
@@ -184,6 +187,13 @@ def _search_openalex(topic: str, max_results: int) -> list[dict]:
             "sort": "cited_by_count:desc",
             "mailto": "ouroboros@localhost",
         }
+        # OpenAlex supports filter by publication_year range
+        if year_min and year_max:
+            params["filter"] = f"publication_year:{year_min}-{year_max}"
+        elif year_min:
+            params["filter"] = f"publication_year:>{year_min - 1}"
+        elif year_max:
+            params["filter"] = f"publication_year:<{year_max + 1}"
         resp = _get_session().get(url, params=params, timeout=30)
         resp.raise_for_status()
         data = resp.json()
@@ -219,6 +229,10 @@ def _search_openalex(topic: str, max_results: int) -> list[dict]:
                     authors.append(name)
 
             paper_id = f"doi:{doi}" if doi else f"openalex:{item.get('id', '').split('/')[-1]}"
+
+            # Skip results without a PDF URL -- website-only entries aren't useful
+            if not pdf_url:
+                continue
 
             papers.append({
                 "paper_id": paper_id,
@@ -295,6 +309,9 @@ def search_papers(
     max_results: int = 20,
     s2_api_key: str | None = None,
     core_api_key: str | None = None,
+    year_min: int | None = None,
+    year_max: int | None = None,
+    sources: list[str] | None = None,
 ) -> list[dict]:
     """Search arXiv + Semantic Scholar + OpenAlex + CORE, deduplicate, return merged results.
 
@@ -303,30 +320,47 @@ def search_papers(
         max_results: Max papers to return total.
         s2_api_key: Optional Semantic Scholar API key.
         core_api_key: Optional CORE API key.
+        year_min: Only include papers published in or after this year.
+        year_max: Only include papers published in or before this year.
+        sources: List of sources to search (e.g. ["arxiv", "openalex"]).
+                 If None, all sources are searched.
 
     Returns:
         List of paper metadata dicts, deduplicated by paper_id.
     """
-    print(f"Searching for papers on: {topic}")
+    enabled = set(sources) if sources else {"arxiv", "semantic_scholar", "openalex", "core"}
+    year_label = ""
+    if year_min and year_max:
+        year_label = f" ({year_min}-{year_max})"
+    elif year_min:
+        year_label = f" ({year_min}+)"
+    elif year_max:
+        year_label = f" (up to {year_max})"
+    print(f"Searching for papers on: {topic}{year_label}")
 
-    # Search all sources
-    arxiv_papers = _search_arxiv(topic, max_results)
-    print(f"  arXiv: {len(arxiv_papers)} results")
+    # Search enabled sources
+    arxiv_papers = _search_arxiv(topic, max_results) if "arxiv" in enabled else []
+    if "arxiv" in enabled:
+        print(f"  arXiv: {len(arxiv_papers)} results")
 
-    s2_papers = _search_semantic_scholar(topic, max_results, s2_api_key=s2_api_key)
-    print(f"  Semantic Scholar: {len(s2_papers)} results")
+    s2_papers = _search_semantic_scholar(topic, max_results, s2_api_key=s2_api_key, year_min=year_min, year_max=year_max) if "semantic_scholar" in enabled else []
+    if "semantic_scholar" in enabled:
+        print(f"  Semantic Scholar: {len(s2_papers)} results")
 
-    openalex_papers = _search_openalex(topic, max_results)
-    print(f"  OpenAlex: {len(openalex_papers)} results")
+    openalex_papers = _search_openalex(topic, max_results, year_min=year_min, year_max=year_max) if "openalex" in enabled else []
+    if "openalex" in enabled:
+        print(f"  OpenAlex: {len(openalex_papers)} results")
 
-    core_papers = _search_core(topic, max_results, core_api_key=core_api_key)
-    print(f"  CORE: {len(core_papers)} results")
+    core_papers = _search_core(topic, max_results, core_api_key=core_api_key) if "core" in enabled else []
+    if "core" in enabled:
+        print(f"  CORE: {len(core_papers)} results")
 
     # Deduplicate -- prefer arXiv entries (they have direct PDF URLs)
     seen_ids = set()
     seen_titles = set()
     merged = []
     skipped_lang = 0
+    skipped_year = 0
 
     for paper in arxiv_papers + s2_papers + openalex_papers + core_papers:
         pid = paper["paper_id"]
@@ -341,6 +375,16 @@ def search_papers(
             skipped_lang += 1
             continue
 
+        # Filter by year range
+        paper_year = paper.get("year")
+        if paper_year:
+            if year_min and paper_year < year_min:
+                skipped_year += 1
+                continue
+            if year_max and paper_year > year_max:
+                skipped_year += 1
+                continue
+
         seen_ids.add(pid)
         seen_titles.add(title_key)
         merged.append(paper)
@@ -353,6 +397,8 @@ def search_papers(
     print(f"  Merged (deduplicated): {len(merged)} papers")
     if skipped_lang:
         print(f"  Filtered out {skipped_lang} non-English papers")
+    if skipped_year:
+        print(f"  Filtered out {skipped_year} papers outside year range")
     return merged
 
 
@@ -786,6 +832,7 @@ def run_scrape(
     cancel_event=None,
     s2_api_key: str | None = None,
     core_api_key: str | None = None,
+    pre_papers: list[dict] | None = None,
 ):
     """Orchestrate the full scrape pipeline.
 
@@ -806,8 +853,12 @@ def run_scrape(
         output_path: Output file path.
         collect_only: If True, just save paper metadata.
     """
-    # ── Step 1: Search ──
-    papers = search_papers(topic, max_results=max_papers, s2_api_key=s2_api_key, core_api_key=core_api_key)
+    # ── Step 1: Search (skip if pre-fetched papers provided) ──
+    if pre_papers:
+        papers = pre_papers
+        print(f"Using {len(papers)} pre-fetched papers from local database")
+    else:
+        papers = search_papers(topic, max_results=max_papers, s2_api_key=s2_api_key, core_api_key=core_api_key)
 
     if not papers:
         raise RuntimeError(f"No papers found for topic '{topic}'. APIs may be rate-limited — check arXiv and Semantic Scholar access.")

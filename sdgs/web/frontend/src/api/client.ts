@@ -127,6 +127,10 @@ export interface AggregateStats {
   total_gpu_kwh: number
   total_qa_pairs: number
   total_generation_seconds: number
+  paper_by_topic: {
+    topic: string
+    count: number
+  }[]
   per_dataset: {
     topic: string
     total_tokens: number
@@ -323,6 +327,7 @@ export interface PaperInfo {
   source: string | null
   citation_count: number
   qa_pair_count: number
+  pdf_url: string | null
   pdf_path: string | null
   dataset_id: number | null
 }
@@ -353,11 +358,95 @@ export const getPapers = (page = 1, search?: string, datasetId?: number, topic?:
 
 export const getPaperTopics = () => request<string[]>('/papers/topics')
 
-export const scrapePapers = (topic: string, max_results: number) =>
+export const scrapePapers = (
+  topic: string,
+  max_results: number,
+  year_min?: number | null,
+  year_max?: number | null,
+  sources?: string[] | null,
+) =>
   request<{ saved: number; searched: number }>('/papers/scrape', {
     method: 'POST',
-    body: JSON.stringify({ topic, max_results }),
+    body: JSON.stringify({
+      topic,
+      max_results,
+      ...(year_min ? { year_min } : {}),
+      ...(year_max ? { year_max } : {}),
+      ...(sources && sources.length > 0 ? { sources } : {}),
+    }),
   })
+
+export interface ScrapeProgressEvent {
+  stage: string
+  message: string
+  source?: string
+  found?: number
+  saved?: number
+  searched?: number
+  sources_total?: number
+  sources_done?: number
+}
+
+export function scrapePapersStream(
+  topic: string,
+  max_results: number,
+  year_min?: number | null,
+  year_max?: number | null,
+  sources?: string[] | null,
+  onProgress?: (event: ScrapeProgressEvent) => void,
+  onDone?: (event: ScrapeProgressEvent) => void,
+): () => void {
+  const token = localStorage.getItem('access_token')
+  const controller = new AbortController()
+
+  fetch(`${BASE_URL}/papers/scrape/stream`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({
+      topic,
+      max_results,
+      ...(year_min ? { year_min } : {}),
+      ...(year_max ? { year_max } : {}),
+      ...(sources && sources.length > 0 ? { sources } : {}),
+    }),
+    signal: controller.signal,
+  }).then(async (res) => {
+    if (!res.ok || !res.body) return
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+
+      let currentEvent = ''
+      for (const line of lines) {
+        if (line.startsWith('event:')) {
+          currentEvent = line.slice(6).trim()
+        } else if (line.startsWith('data:')) {
+          try {
+            const data = JSON.parse(line.slice(5).trim()) as ScrapeProgressEvent
+            if (currentEvent === 'done') {
+              onDone?.(data)
+            } else {
+              onProgress?.(data)
+            }
+          } catch { /* skip malformed */ }
+        }
+      }
+    }
+  }).catch(() => { /* aborted or network error */ })
+
+  return () => controller.abort()
+}
 
 export async function downloadPaperPdf(paperId: number, filename: string) {
   const res = await fetch(`${BASE_URL}/papers/${paperId}/pdf`, {

@@ -14,6 +14,12 @@ from sqlalchemy.orm import Session
 from ..db.database import SessionLocal
 from ..db.models import Dataset
 
+
+def _classify(title: str, abstract: str = "") -> str:
+    """Lazy-import paper classifier to avoid circular imports."""
+    from ...classify import classify_paper
+    return classify_paper(title, abstract)
+
 log = logging.getLogger(__name__)
 
 _executor = ThreadPoolExecutor(max_workers=2)
@@ -271,6 +277,7 @@ def _run_job(dataset_id: int, q: queue.Queue, run_fn, kwargs: dict):
                     doi=p_data.get("doi"),
                     url=p_data.get("url", ""),
                     source=p_data.get("source", ""),
+                    topic=_classify(p_data.get("title", ""), p_data.get("abstract", "")),
                     citation_count=p_data.get("citation_count", 0),
                     pdf_path=p_data.get("pdf_path"),
                     user_id=ds.user_id,

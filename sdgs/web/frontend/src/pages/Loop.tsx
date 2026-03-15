@@ -298,7 +298,7 @@ export default function Loop() {
       )}
 
       {error && (
-        <div style={{ padding: '12px 16px', background: 'rgba(255, 126, 179, 0.1)', border: '1px solid var(--status-failed)', borderRadius: 'var(--radius-sm)', marginBottom: 16, color: 'var(--status-failed)', fontSize: 13 }}>
+        <div style={{ padding: '12px 16px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid var(--status-failed)', borderRadius: 'var(--radius-sm)', marginBottom: 16, color: 'var(--status-failed)', fontSize: 13 }}>
           {error}
         </div>
       )}
@@ -325,13 +325,13 @@ export default function Loop() {
                 color = '#000'
                 border = '1px solid var(--accent-blue)'
               } else if (isPast) {
-                bg = 'rgba(0, 255, 150, 0.15)'
+                bg = 'rgba(34, 197, 94, 0.15)'
                 color = 'var(--accent-green)'
                 border = '1px solid var(--accent-green)'
               } else if (isDone) {
-                bg = 'rgba(0, 255, 150, 0.08)'
+                bg = 'rgba(34, 197, 94, 0.08)'
                 color = 'var(--accent-green)'
-                border = '1px solid rgba(0, 255, 150, 0.3)'
+                border = '1px solid rgba(34, 197, 94, 0.3)'
               }
 
               return (
@@ -552,7 +552,7 @@ export default function Loop() {
                   style={{
                     borderBottom: '1px solid var(--border-subtle)',
                     cursor: 'pointer',
-                    background: activeLoopId === h.loop_id ? 'rgba(126, 184, 255, 0.05)' : undefined,
+                    background: activeLoopId === h.loop_id ? 'rgba(59, 130, 246, 0.05)' : undefined,
                   }}
                   onClick={() => setActiveLoopId(h.loop_id)}
                 >
@@ -662,6 +662,6 @@ function btnStyle(variant: 'primary' | 'secondary' | 'danger'): React.CSSPropert
     transition: 'all 0.15s',
   }
   if (variant === 'primary') return { ...base, background: 'var(--accent-blue)', color: '#000' }
-  if (variant === 'danger') return { ...base, background: 'rgba(255, 126, 179, 0.15)', color: 'var(--status-failed)', border: '1px solid var(--status-failed)' }
-  return { ...base, background: 'rgba(126, 184, 255, 0.1)', color: 'var(--accent-blue)', border: '1px solid var(--border-subtle)' }
+  if (variant === 'danger') return { ...base, background: 'rgba(239, 68, 68, 0.15)', color: 'var(--status-failed)', border: '1px solid var(--status-failed)' }
+  return { ...base, background: 'rgba(59, 130, 246, 0.1)', color: 'var(--accent-blue)', border: '1px solid var(--border-subtle)' }
 }

@@ -175,18 +175,18 @@ export default function KnowledgeBase() {
           <div style={{
             display: 'flex', alignItems: 'center', gap: '6px',
             padding: '8px 12px',
-            background: '#1a1a2e', borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
-            borderBottom: '1px solid #2a2a3e',
+            background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
+            borderBottom: '1px solid var(--border-subtle)',
           }}>
-            <Terminal size={12} style={{ color: '#6c6c8a' }} />
-            <span style={{ fontSize: '11px', color: '#6c6c8a', fontWeight: 500 }}>Index Output</span>
-            {indexing && <span style={{ fontSize: '10px', color: '#4ade80', marginLeft: 'auto' }}>RUNNING</span>}
-            {!indexing && indexLogs.length > 2 && <span style={{ fontSize: '10px', color: '#6c6c8a', marginLeft: 'auto' }}>DONE</span>}
+            <Terminal size={12} style={{ color: 'var(--text-muted)' }} />
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 500 }}>Index Output</span>
+            {indexing && <span style={{ fontSize: '10px', color: 'var(--accent-primary)', marginLeft: 'auto' }}>RUNNING</span>}
+            {!indexing && indexLogs.length > 2 && <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginLeft: 'auto' }}>DONE</span>}
           </div>
           <div
             ref={terminalRef}
             style={{
-              background: '#0d0d1a',
+              background: 'var(--bg-primary)',
               borderRadius: '0 0 var(--radius-sm) var(--radius-sm)',
               padding: '12px 16px',
               maxHeight: '300px',
@@ -197,12 +197,12 @@ export default function KnowledgeBase() {
             }}
           >
             {indexLogs.map((line, i) => {
-              let color = '#a0a0b8'
-              if (line.startsWith('$')) color = '#818cf8'
-              else if (line.includes('OK   ')) color = '#4ade80'
-              else if (line.includes('SKIP ')) color = '#fbbf24'
-              else if (line.includes('Error')) color = '#f87171'
-              else if (line.startsWith('---') || line.startsWith('Done.') || line.startsWith('Found')) color = '#60a5fa'
+              let color = 'var(--text-secondary)'
+              if (line.startsWith('$')) color = 'var(--accent-purple)'
+              else if (line.includes('OK   ')) color = 'var(--accent-primary)'
+              else if (line.includes('SKIP ')) color = 'var(--accent-yellow)'
+              else if (line.includes('Error')) color = 'var(--status-failed)'
+              else if (line.startsWith('---') || line.startsWith('Done.') || line.startsWith('Found')) color = 'var(--accent-blue)'
 
               return (
                 <div key={i} style={{ color, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
@@ -211,7 +211,7 @@ export default function KnowledgeBase() {
               )
             })}
             {indexing && (
-              <div style={{ color: '#818cf8' }}>
+              <div style={{ color: 'var(--accent-purple)' }}>
                 <span style={{ animation: 'blink 1s step-end infinite' }}>_</span>
               </div>
             )}

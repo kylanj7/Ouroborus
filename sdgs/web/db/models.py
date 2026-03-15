@@ -81,8 +81,10 @@ class Paper(Base):
     url = Column(String(500), nullable=True)
     source = Column(String(50), nullable=True)
 
+    topic = Column(String(500), nullable=True)
     citation_count = Column(Integer, default=0)
     has_full_text = Column(Boolean, default=False)
+    pdf_url = Column(String(1000), nullable=True)
     pdf_path = Column(String(500), nullable=True)
     keywords = Column(JSON, default=list)
     qa_pair_count = Column(Integer, default=0)

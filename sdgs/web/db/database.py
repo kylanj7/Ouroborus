@@ -28,6 +28,13 @@ def _migrate(eng):
         if "pdf_path" not in columns:
             with eng.begin() as conn:
                 conn.execute(text("ALTER TABLE papers ADD COLUMN pdf_path VARCHAR(500)"))
+        if "pdf_url" not in columns:
+            with eng.begin() as conn:
+                conn.execute(text("ALTER TABLE papers ADD COLUMN pdf_url VARCHAR(1000)"))
+        if "topic" not in columns:
+            with eng.begin() as conn:
+                conn.execute(text("ALTER TABLE papers ADD COLUMN topic VARCHAR(500)"))
+            _backfill_paper_topics(eng)
     if insp.has_table("datasets"):
         columns = {c["name"] for c in insp.get_columns("datasets")}
         if "max_tokens" not in columns:
@@ -43,6 +50,24 @@ def _migrate(eng):
         if "core_token" not in columns:
             with eng.begin() as conn:
                 conn.execute(text("ALTER TABLE users ADD COLUMN core_token TEXT"))
+
+
+def _backfill_paper_topics(eng):
+    """Classify existing papers that have no topic set."""
+    try:
+        from ...classify import classify_paper
+    except Exception:
+        return
+    from sqlalchemy.orm import Session as _Session
+    with _Session(eng) as session:
+        from .models import Paper
+        papers = session.query(Paper).filter(Paper.topic.is_(None)).all()
+        if not papers:
+            return
+        for p in papers:
+            p.topic = classify_paper(p.title or "", p.abstract or "")
+        session.commit()
+        print(f"  Classified {len(papers)} papers")
 
 
 def _enable_wal(eng):

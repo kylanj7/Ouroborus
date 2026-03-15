@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ChevronDown, ChevronRight, CheckCircle, XCircle, StopCircle, Plus, Trash2, Layers, FileText } from 'lucide-react'
-import { getProviders, getOllamaModels, cancelDataset, createBatchDatasets, createDatasetFromPapers, ProviderInfo } from '../api/client'
+import { ChevronDown, ChevronRight, CheckCircle, StopCircle, Plus, Trash2, Layers, FileText } from 'lucide-react'
+import { getOllamaModels, cancelDataset, createBatchDatasets, createDatasetFromPapers } from '../api/client'
 import { useDatasetStore } from '../store/datasetStore'
 import { useSSE } from '../hooks/useSSE'
 
@@ -23,14 +23,14 @@ export default function CreateDataset() {
 
   const [topic, setTopic] = useState('')
   const [targetSize, setTargetSize] = useState(100)
-  const [provider, setProvider] = useState<string>('ollama')
+  const provider = 'ollama'
   const [model, setModel] = useState('')
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [systemPrompt, setSystemPrompt] = useState('')
   const [temperature, setTemperature] = useState(0.7)
   const [maxTokens, setMaxTokens] = useState(4096)
-  const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [ollamaModels, setOllamaModels] = useState<string[]>([])
+  const [modelsLoading, setModelsLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [datasetId, setDatasetId] = useState<number | null>(null)
   const [error, setError] = useState('')
@@ -48,14 +48,17 @@ export default function CreateDataset() {
   const navigate = useNavigate()
 
   useEffect(() => {
-    getProviders().then(setProviders).catch(() => {})
+    setModelsLoading(true)
+    getOllamaModels()
+      .then((models) => {
+        setOllamaModels(models)
+        if (models.length > 0 && !model) {
+          setModel(models[0])
+        }
+      })
+      .catch(() => setOllamaModels([]))
+      .finally(() => setModelsLoading(false))
   }, [])
-
-  useEffect(() => {
-    if (provider === 'ollama') {
-      getOllamaModels().then(setOllamaModels).catch(() => setOllamaModels([]))
-    }
-  }, [provider])
 
   useEffect(() => {
     if (logViewerRef.current) {
@@ -69,8 +72,6 @@ export default function CreateDataset() {
     }
   }, [done, status, datasetId, navigate])
 
-  const selectedProvider = providers.find((p) => p.name === provider)
-
   const handleGenerate = async () => {
     if (isFromPapers) {
       setError('')
@@ -78,7 +79,7 @@ export default function CreateDataset() {
       try {
         const ds = await createDatasetFromPapers({
           paper_ids: paperIds,
-          provider: provider || undefined,
+          provider,
           model: model || undefined,
           system_prompt: systemPrompt || undefined,
           temperature,
@@ -99,7 +100,7 @@ export default function CreateDataset() {
     try {
       const ds = await createDataset({
         topic: topic.trim(),
-        provider: provider || undefined,
+        provider,
         model: model || undefined,
         target_size: targetSize,
         system_prompt: systemPrompt || undefined,
@@ -123,7 +124,7 @@ export default function CreateDataset() {
       await createBatchDatasets(
         validRows.map((r) => ({
           topic: r.topic.trim(),
-          provider: provider || undefined,
+          provider,
           model: model || undefined,
           target_size: r.targetSize,
           system_prompt: systemPrompt || undefined,
@@ -193,8 +194,8 @@ export default function CreateDataset() {
           <div style={{
             marginBottom: '16px',
             padding: '10px 14px',
-            background: 'rgba(126, 184, 255, 0.1)',
-            border: '1px solid rgba(126, 184, 255, 0.2)',
+            background: 'rgba(59, 130, 246, 0.1)',
+            border: '1px solid rgba(59, 130, 246, 0.2)',
             borderRadius: 'var(--radius-sm)',
             display: 'flex',
             alignItems: 'center',
@@ -300,44 +301,27 @@ export default function CreateDataset() {
           </div>
         )}
 
-        {/* Single/papers mode: Provider, Model (+ Target Size for non-paper mode) */}
+        {/* Model selection (always Ollama) */}
         {!batchMode && (
           isFromPapers ? (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
-              <div>
-                <label>Provider</label>
-                <select
-                  value={provider}
-                  onChange={(e) => setProvider(e.target.value)}
-                  disabled={generating}
-                >
-                  {providers.map((p) => (
-                    <option key={p.name} value={p.name}>{p.name}</option>
+            <div style={{ marginBottom: '20px' }}>
+              <label>Ollama Model</label>
+              {modelsLoading ? (
+                <div style={{ fontSize: '13px', color: 'var(--text-muted)', padding: '8px 0' }}>Loading models...</div>
+              ) : ollamaModels.length > 0 ? (
+                <select value={model} onChange={(e) => setModel(e.target.value)} disabled={generating}>
+                  {ollamaModels.map((m) => (
+                    <option key={m} value={m}>{m}</option>
                   ))}
                 </select>
-              </div>
-              <div>
-                <label>Model</label>
-                {provider === 'ollama' && ollamaModels.length > 0 ? (
-                  <select value={model} onChange={(e) => setModel(e.target.value)} disabled={generating}>
-                    <option value="">Select a model...</option>
-                    {ollamaModels.map((m) => (
-                      <option key={m} value={m}>{m}</option>
-                    ))}
-                  </select>
-                ) : (
-                  <input
-                    type="text"
-                    placeholder={selectedProvider?.default_model || '(default)'}
-                    value={model}
-                    onChange={(e) => setModel(e.target.value)}
-                    disabled={generating}
-                  />
-                )}
-              </div>
+              ) : (
+                <div style={{ fontSize: '13px', color: 'var(--accent-pink)', padding: '8px 0' }}>
+                  No Ollama models found. Is Ollama running?
+                </div>
+              )}
             </div>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '20px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
               <div>
                 <label>Target Size</label>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -353,107 +337,56 @@ export default function CreateDataset() {
                 </div>
               </div>
               <div>
-                <label>Provider</label>
-                <select
-                  value={provider}
-                  onChange={(e) => setProvider(e.target.value)}
-                  disabled={generating}
-                >
-                  {providers.map((p) => (
-                    <option key={p.name} value={p.name}>{p.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label>Model</label>
-                {provider === 'ollama' && ollamaModels.length > 0 ? (
+                <label>Ollama Model</label>
+                {modelsLoading ? (
+                  <div style={{ fontSize: '13px', color: 'var(--text-muted)', padding: '8px 0' }}>Loading models...</div>
+                ) : ollamaModels.length > 0 ? (
                   <select value={model} onChange={(e) => setModel(e.target.value)} disabled={generating}>
-                    <option value="">Select a model...</option>
                     {ollamaModels.map((m) => (
                       <option key={m} value={m}>{m}</option>
                     ))}
                   </select>
                 ) : (
-                  <input
-                    type="text"
-                    placeholder={selectedProvider?.default_model || '(default)'}
-                    value={model}
-                    onChange={(e) => setModel(e.target.value)}
-                    disabled={generating}
-                  />
+                  <div style={{ fontSize: '13px', color: 'var(--accent-pink)', padding: '8px 0' }}>
+                    No Ollama models found. Is Ollama running?
+                  </div>
                 )}
               </div>
             </div>
           )
         )}
 
-        {/* Batch mode: Shared Provider/Model */}
+        {/* Batch mode: Shared Model */}
         {batchMode && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
-            <div>
-              <label>Provider (shared)</label>
-              <select
-                value={provider}
-                onChange={(e) => setProvider(e.target.value)}
-                disabled={generating}
-              >
-                {providers.map((p) => (
-                  <option key={p.name} value={p.name}>{p.name}</option>
+          <div style={{ marginBottom: '20px' }}>
+            <label>Ollama Model (shared)</label>
+            {modelsLoading ? (
+              <div style={{ fontSize: '13px', color: 'var(--text-muted)', padding: '8px 0' }}>Loading models...</div>
+            ) : ollamaModels.length > 0 ? (
+              <select value={model} onChange={(e) => setModel(e.target.value)} disabled={generating}>
+                {ollamaModels.map((m) => (
+                  <option key={m} value={m}>{m}</option>
                 ))}
               </select>
-            </div>
-            <div>
-              <label>Model (shared)</label>
-              {provider === 'ollama' && ollamaModels.length > 0 ? (
-                <select value={model} onChange={(e) => setModel(e.target.value)} disabled={generating}>
-                  <option value="">Select a model...</option>
-                  {ollamaModels.map((m) => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  type="text"
-                  placeholder={selectedProvider?.default_model || '(default)'}
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                  disabled={generating}
-                />
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* API Key status */}
-        {provider && (
-          <div style={{
-            fontSize: '13px',
-            marginBottom: '16px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-          }}>
-            {selectedProvider?.has_key ? (
-              <>
-                <CheckCircle size={14} style={{ color: 'var(--accent-green)' }} />
-                <span style={{ color: 'var(--text-secondary)' }}>API Key: Configured (from settings)</span>
-              </>
-            ) : selectedProvider?.api_key_env ? (
-              <>
-                <XCircle size={14} style={{ color: 'var(--accent-yellow)' }} />
-                <span style={{ color: 'var(--text-secondary)' }}>
-                  No API key stored. Will use env var ({selectedProvider.api_key_env}) or add key in{' '}
-                  <a href="/settings" style={{ color: 'var(--accent-blue)' }}>Settings</a>
-                </span>
-              </>
             ) : (
-              <>
-                <CheckCircle size={14} style={{ color: 'var(--text-muted)' }} />
-                <span style={{ color: 'var(--text-secondary)' }}>No API key required</span>
-              </>
+              <div style={{ fontSize: '13px', color: 'var(--accent-pink)', padding: '8px 0' }}>
+                No Ollama models found. Is Ollama running?
+              </div>
             )}
           </div>
         )}
+
+        {/* Provider status */}
+        <div style={{
+          fontSize: '13px',
+          marginBottom: '16px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
+        }}>
+          <CheckCircle size={14} style={{ color: 'var(--text-muted)' }} />
+          <span style={{ color: 'var(--text-secondary)' }}>Provider: Ollama (local) -- no API key required</span>
+        </div>
 
         {/* Advanced Options */}
         <div style={{ marginBottom: '20px' }}>
@@ -534,8 +467,8 @@ export default function CreateDataset() {
         {/* Error */}
         {error && (
           <div style={{
-            background: 'rgba(255, 126, 179, 0.1)',
-            border: '1px solid rgba(255, 126, 179, 0.3)',
+            background: 'rgba(239, 68, 68, 0.1)',
+            border: '1px solid rgba(239, 68, 68, 0.3)',
             borderRadius: 'var(--radius-sm)',
             padding: '8px 12px',
             color: 'var(--accent-pink)',

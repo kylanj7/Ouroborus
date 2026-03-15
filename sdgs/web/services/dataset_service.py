@@ -48,7 +48,78 @@ def run_dataset_pipeline(
     output_path = str(DATA_DIR / f"{safe_topic}_{dataset_id}.jsonl")
     filtered_path = str(DATA_DIR / f"{safe_topic}_{dataset_id}_filtered.jsonl")
 
-    # 3. Run scrape (papers + Q&A generation)
+    # 3. Check local PDF database first before scraping externally
+    pre_papers = None
+    try:
+        from ..db.database import SessionLocal
+        from ..db.models import Paper, Dataset as DatasetModel
+        local_db = SessionLocal()
+        try:
+            # Find the user_id from the dataset
+            ds_row = local_db.query(DatasetModel).filter(DatasetModel.id == dataset_id).first()
+            if ds_row:
+                # Search for local papers matching the topic (by Paper.topic or keyword in title/abstract)
+                topic_lower = topic.lower()
+                local_papers = (
+                    local_db.query(Paper)
+                    .filter(
+                        Paper.user_id == ds_row.user_id,
+                        Paper.abstract.isnot(None),
+                    )
+                    .all()
+                )
+                # Score relevance: exact topic match > title keyword match
+                scored = []
+                for p in local_papers:
+                    score = 0
+                    if p.topic and topic_lower in p.topic.lower():
+                        score += 3
+                    if p.title and topic_lower in p.title.lower():
+                        score += 2
+                    if p.abstract and topic_lower in p.abstract.lower():
+                        score += 1
+                    # Also check individual words from the topic
+                    words = [w for w in topic_lower.split() if len(w) > 3]
+                    for w in words:
+                        if p.title and w in p.title.lower():
+                            score += 0.5
+                        if p.abstract and w in p.abstract.lower():
+                            score += 0.3
+                    if score > 0:
+                        scored.append((score, p))
+
+                scored.sort(key=lambda x: (-x[0], -(x[1].citation_count or 0)))
+                matched = scored[:max_papers]
+
+                if matched:
+                    pre_papers = []
+                    for _, p in matched:
+                        pre_papers.append({
+                            "paper_id": p.paper_id or f"local_{p.id}",
+                            "title": p.title or "",
+                            "authors": p.authors or [],
+                            "abstract": p.abstract or "",
+                            "year": p.year,
+                            "doi": p.doi,
+                            "url": p.url or "",
+                            "source": p.source or "local",
+                            "citation_count": p.citation_count or 0,
+                            "pdf_url": p.pdf_url,
+                            "pdf_path": p.pdf_path,
+                        })
+                    print(f"Found {len(pre_papers)} matching papers in local PDF database")
+
+                    # If we don't have enough, supplement with external scrape
+                    if len(pre_papers) < max_papers // 2:
+                        print(f"Only {len(pre_papers)} local papers found (need ~{max_papers}), will also search externally")
+                        pre_papers = None  # Fall back to full external scrape
+        finally:
+            local_db.close()
+    except Exception as e:
+        log.warning("[dataset:%d] Local DB check failed, falling back to external scrape: %s", dataset_id, e)
+        pre_papers = None
+
+    # 4. Run scrape (papers + Q&A generation)
     log.info("[dataset:%d] Starting scrape pipeline: topic=%r, provider=%s, model=%s, max_papers=%d",
              dataset_id, topic, provider, model, max_papers)
     run_scrape(
@@ -67,6 +138,7 @@ def run_dataset_pipeline(
         cancel_event=cancel_event,
         s2_api_key=s2_api_key,
         core_api_key=core_api_key,
+        pre_papers=pre_papers,
     )
 
     # 4. Auto-filter the output

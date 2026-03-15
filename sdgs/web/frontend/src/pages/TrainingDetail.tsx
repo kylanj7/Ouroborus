@@ -234,8 +234,8 @@ export default function TrainingDetail() {
       {currentRun.error_message && (
         <div className="card" style={{
           marginBottom: '16px',
-          background: 'rgba(255, 126, 179, 0.05)',
-          borderColor: 'rgba(255, 126, 179, 0.2)',
+          background: 'rgba(239, 68, 68, 0.05)',
+          borderColor: 'rgba(239, 68, 68, 0.2)',
         }}>
           <h3 style={{ fontSize: '14px', fontWeight: 500, color: 'var(--accent-pink)', marginBottom: '8px' }}>Error</h3>
           <pre style={{ fontSize: '13px', color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>

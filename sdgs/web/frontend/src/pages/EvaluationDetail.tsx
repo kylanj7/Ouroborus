@@ -118,8 +118,8 @@ export default function EvaluationDetail() {
       {currentEval.error_message && (
         <div className="card" style={{
           marginBottom: '16px',
-          background: 'rgba(255, 126, 179, 0.05)',
-          borderColor: 'rgba(255, 126, 179, 0.2)',
+          background: 'rgba(239, 68, 68, 0.05)',
+          borderColor: 'rgba(239, 68, 68, 0.2)',
         }}>
           <h3 style={{ fontSize: '14px', fontWeight: 500, color: 'var(--accent-pink)', marginBottom: '8px' }}>Error</h3>
           <pre style={{ fontSize: '13px', color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>
@@ -227,7 +227,7 @@ export default function EvaluationDetail() {
                           <div style={{
                             fontSize: '13px',
                             color: 'var(--text-secondary)',
-                            background: 'rgba(110, 231, 216, 0.05)',
+                            background: 'rgba(34, 197, 94, 0.05)',
                             padding: '8px 12px',
                             borderRadius: 'var(--radius-sm)',
                             whiteSpace: 'pre-wrap',
@@ -246,7 +246,7 @@ export default function EvaluationDetail() {
                           <div style={{
                             fontSize: '13px',
                             color: 'var(--text-secondary)',
-                            background: 'rgba(192, 132, 252, 0.05)',
+                            background: 'rgba(167, 139, 250, 0.06)',
                             padding: '8px 12px',
                             borderRadius: 'var(--radius-sm)',
                             whiteSpace: 'pre-wrap',
@@ -353,8 +353,8 @@ export default function EvaluationDetail() {
 
               {correctionError && (
                 <div style={{
-                  background: 'rgba(255, 126, 179, 0.1)',
-                  border: '1px solid rgba(255, 126, 179, 0.3)',
+                  background: 'rgba(239, 68, 68, 0.1)',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
                   borderRadius: 'var(--radius-sm)',
                   padding: '8px 12px',
                   color: 'var(--accent-pink)',

@@ -40,39 +40,68 @@ export default function Register() {
       minHeight: '100vh',
       padding: '20px',
       background: 'var(--bg-primary)',
+      position: 'relative',
+      overflow: 'hidden',
     }}>
+      {/* Background glow */}
+      <div style={{
+        position: 'absolute',
+        top: '30%',
+        left: '50%',
+        transform: 'translate(-50%, -50%)',
+        width: '600px',
+        height: '600px',
+        background: 'radial-gradient(circle, rgba(34, 197, 94, 0.06) 0%, transparent 70%)',
+        pointerEvents: 'none',
+      }} />
+
       <div className="card" style={{
         width: '100%',
-        maxWidth: '380px',
-        padding: '32px',
+        maxWidth: '400px',
+        padding: '40px',
+        position: 'relative',
+        border: '1px solid var(--border-subtle)',
       }}>
-        <div style={{ textAlign: 'center', marginBottom: '28px' }}>
+        {/* Top gradient border accent */}
+        <div style={{
+          position: 'absolute',
+          top: 0,
+          left: '40px',
+          right: '40px',
+          height: '2px',
+          background: 'linear-gradient(90deg, transparent, var(--accent-primary), transparent)',
+          opacity: 0.4,
+        }} />
+
+        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
           <div style={{
-            width: '48px',
-            height: '48px',
-            borderRadius: '8px',
-            background: 'var(--accent-primary)',
+            width: '52px',
+            height: '52px',
+            borderRadius: '14px',
+            background: 'var(--gradient-green)',
+            boxShadow: '0 0 30px rgba(34, 197, 94, 0.25), inset 0 1px 0 rgba(255,255,255,0.15)',
             display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',
             fontWeight: 800,
             fontSize: '24px',
             color: '#fff',
-            marginBottom: '16px',
+            marginBottom: '20px',
           }}>
             O
           </div>
           <h1 style={{
-            fontSize: '22px',
-            fontWeight: 600,
+            fontSize: '24px',
+            fontWeight: 700,
             color: 'var(--text-primary)',
+            letterSpacing: '-0.02em',
           }}>
             Create Account
           </h1>
           <p style={{
             color: 'var(--text-muted)',
             fontSize: '13px',
-            marginTop: '4px',
+            marginTop: '6px',
           }}>
             Join Ouroboros AI Training Suite
           </p>
@@ -80,20 +109,20 @@ export default function Register() {
 
         {error && (
           <div style={{
-            background: 'rgba(248, 81, 73, 0.1)',
-            border: '1px solid rgba(248, 81, 73, 0.3)',
+            background: 'rgba(239, 68, 68, 0.08)',
+            border: '1px solid rgba(239, 68, 68, 0.2)',
             borderRadius: 'var(--radius-sm)',
-            padding: '8px 12px',
+            padding: '10px 14px',
             color: 'var(--status-failed)',
             fontSize: '13px',
-            marginBottom: '16px',
+            marginBottom: '20px',
           }}>
             {error}
           </div>
         )}
 
         <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: '16px' }}>
+          <div style={{ marginBottom: '18px' }}>
             <label>Username</label>
             <input
               type="text"
@@ -103,7 +132,7 @@ export default function Register() {
               autoFocus
             />
           </div>
-          <div style={{ marginBottom: '16px' }}>
+          <div style={{ marginBottom: '18px' }}>
             <label>Password</label>
             <input
               type="password"
@@ -113,7 +142,7 @@ export default function Register() {
               minLength={6}
             />
           </div>
-          <div style={{ marginBottom: '20px' }}>
+          <div style={{ marginBottom: '24px' }}>
             <label>Confirm Password</label>
             <input
               type="password"
@@ -126,7 +155,7 @@ export default function Register() {
             className="btn btn-primary"
             type="submit"
             disabled={loading}
-            style={{ width: '100%', justifyContent: 'center' }}
+            style={{ width: '100%', justifyContent: 'center', padding: '11px 20px', fontSize: '14px' }}
           >
             {loading ? <span className="spinner" /> : 'Create Account'}
           </button>
@@ -134,7 +163,7 @@ export default function Register() {
 
         <p style={{
           textAlign: 'center',
-          marginTop: '16px',
+          marginTop: '20px',
           fontSize: '13px',
           color: 'var(--text-secondary)',
         }}>

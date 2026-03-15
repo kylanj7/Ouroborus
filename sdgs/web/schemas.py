@@ -129,6 +129,7 @@ class PaperResponse(BaseModel):
     source: str | None = None
     citation_count: int = 0
     qa_pair_count: int = 0
+    pdf_url: str | None = None
     pdf_path: str | None = None
     dataset_id: int | None = None
 

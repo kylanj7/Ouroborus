@@ -235,6 +235,15 @@ def get_aggregate_stats(
         Dataset.status.in_(["pending", "running"]),
     ).scalar() or 0
 
+    # Paper distribution by topic
+    paper_by_topic = db.query(
+        Paper.topic,
+        func.count(Paper.id),
+    ).filter(
+        Paper.user_id == current_user.id,
+        Paper.topic.isnot(None),
+    ).group_by(Paper.topic).order_by(func.count(Paper.id).desc()).all()
+
     # Per-dataset token breakdown for chart
     per_dataset = db.query(
         Dataset.topic,
@@ -261,6 +270,14 @@ def get_aggregate_stats(
         "total_gpu_kwh": round(ds_stats[4] or 0, 4),
         "total_qa_pairs": ds_stats[5] or 0,
         "total_generation_seconds": round(ds_stats[6] or 0, 1),
+        "paper_by_topic": [
+            {
+                "topic": row[0],
+                "count": row[1],
+            }
+            for row in paper_by_topic
+            if row[1] > 0
+        ],
         "per_dataset": [
             {
                 "topic": d[0],

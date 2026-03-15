@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { Search, ExternalLink, Download, ChevronLeft, ChevronRight, HardDrive, Sparkles, Plus, Trash2 } from 'lucide-react'
-import { getPapers, getPaperTopics, downloadPaperPdf, scrapePapers, bulkDeletePapers, PaperInfo } from '../api/client'
+import { getPapers, getPaperTopics, downloadPaperPdf, scrapePapers, scrapePapersStream, bulkDeletePapers, PaperInfo, ScrapeProgressEvent } from '../api/client'
 import { useToastStore } from '../store/toastStore'
 
 export default function Papers() {
@@ -18,8 +18,13 @@ export default function Papers() {
   const [showScrape, setShowScrape] = useState(false)
   const [scrapeTopic, setScrapeTopic] = useState('')
   const [scrapeCount, setScrapeCount] = useState(20)
+  const [scrapeYearMin, setScrapeYearMin] = useState<string>('')
+  const [scrapeYearMax, setScrapeYearMax] = useState<string>('')
+  const [scrapeSources, setScrapeSources] = useState<Set<string>>(new Set(['arxiv', 'semantic_scholar', 'openalex', 'core']))
   const [scraping, setScraping] = useState(false)
   const [scrapeMsg, setScrapeMsg] = useState('')
+  const [scrapeLogs, setScrapeLogs] = useState<ScrapeProgressEvent[]>([])
+  const cancelScrapeRef = useRef<(() => void) | null>(null)
 
   const datasetId = searchParams.get('dataset_id')
     ? Number(searchParams.get('dataset_id'))
@@ -106,29 +111,58 @@ export default function Papers() {
     }
   }
 
-  const handleScrape = async () => {
+  const toggleSource = (src: string) => {
+    setScrapeSources((prev) => {
+      const next = new Set(prev)
+      if (next.has(src)) {
+        if (next.size > 1) next.delete(src)
+      } else {
+        next.add(src)
+      }
+      return next
+    })
+  }
+
+  const handleScrape = () => {
     if (!scrapeTopic.trim()) return
     setScraping(true)
     setScrapeMsg('')
-    try {
-      const res = await scrapePapers(scrapeTopic.trim(), scrapeCount)
-      addToast('success', `Found ${res.searched} papers, saved ${res.saved} new`)
-      setScrapeMsg(`Found ${res.searched} papers, saved ${res.saved} new`)
-      setShowScrape(false)
-      setScrapeTopic('')
-      setScrapeCount(20)
-      setPage(1)
-      // Refresh papers list and topics
-      getPaperTopics().then(setTopics).catch(() => {})
-      setLoading(true)
-      getPapers(1, search || undefined, datasetId, selectedTopic || undefined)
-        .then((r) => { setPapers(r.papers); setTotal(r.total) })
-        .catch(() => {})
-        .finally(() => setLoading(false))
-    } catch {
-      setScrapeMsg('Scrape failed')
-    }
-    setScraping(false)
+    setScrapeLogs([])
+
+    const yearMin = scrapeYearMin ? parseInt(scrapeYearMin) : null
+    const yearMax = scrapeYearMax ? parseInt(scrapeYearMax) : null
+    const sources = scrapeSources.size < 4 ? Array.from(scrapeSources) : null
+
+    const cancel = scrapePapersStream(
+      scrapeTopic.trim(),
+      scrapeCount,
+      yearMin,
+      yearMax,
+      sources,
+      (event) => {
+        setScrapeLogs((prev) => [...prev, event])
+      },
+      (event) => {
+        setScrapeLogs((prev) => [...prev, event])
+        setScraping(false)
+        addToast('success', event.message)
+        setScrapeMsg(event.message)
+        setShowScrape(false)
+        setScrapeTopic('')
+        setScrapeCount(20)
+        setScrapeYearMin('')
+        setScrapeYearMax('')
+        setScrapeSources(new Set(['arxiv', 'semantic_scholar', 'openalex', 'core']))
+        setPage(1)
+        getPaperTopics().then(setTopics).catch(() => {})
+        setLoading(true)
+        getPapers(1, search || undefined, datasetId, selectedTopic || undefined)
+          .then((r) => { setPapers(r.papers); setTotal(r.total) })
+          .catch(() => {})
+          .finally(() => setLoading(false))
+      },
+    )
+    cancelScrapeRef.current = cancel
   }
 
   const allOnPageSelected = papers.length > 0 && papers.every((p) => selectedIds.has(p.id))
@@ -137,7 +171,7 @@ export default function Papers() {
     <div>
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
-          <h1>Papers</h1>
+          <h1>PDF Database</h1>
           <p>All scholarly papers used in dataset generation ({total} total)</p>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
@@ -176,7 +210,7 @@ export default function Papers() {
                 style={{ width: '100%', fontSize: '14px' }}
               />
             </div>
-            <div style={{ width: '120px' }}>
+            <div style={{ width: '100px' }}>
               <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Max papers</label>
               <input
                 type="number"
@@ -184,6 +218,30 @@ export default function Papers() {
                 max={200}
                 value={scrapeCount}
                 onChange={(e) => setScrapeCount(Math.max(1, parseInt(e.target.value) || 1))}
+                style={{ width: '100%', fontSize: '14px' }}
+              />
+            </div>
+            <div style={{ width: '90px' }}>
+              <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Year from</label>
+              <input
+                type="number"
+                min={1900}
+                max={2030}
+                placeholder="e.g. 1999"
+                value={scrapeYearMin}
+                onChange={(e) => setScrapeYearMin(e.target.value)}
+                style={{ width: '100%', fontSize: '14px' }}
+              />
+            </div>
+            <div style={{ width: '90px' }}>
+              <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Year to</label>
+              <input
+                type="number"
+                min={1900}
+                max={2030}
+                placeholder="e.g. 2017"
+                value={scrapeYearMax}
+                onChange={(e) => setScrapeYearMax(e.target.value)}
                 style={{ width: '100%', fontSize: '14px' }}
               />
             </div>
@@ -199,23 +257,98 @@ export default function Papers() {
               Cancel
             </button>
           </div>
-          {scraping ? (
-            <div style={{ fontSize: '13px', color: 'var(--accent-green)', marginTop: '8px', marginBottom: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span className="spinner" style={{ width: '12px', height: '12px' }} />
-              Searching arXiv, Semantic Scholar, OpenAlex, and CORE... this may take a moment.
-            </div>
-          ) : (
+          {/* Source filter */}
+          <div style={{ display: 'flex', gap: '10px', marginTop: '10px', alignItems: 'center' }}>
+            <span style={{ fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Sources:</span>
+            {([
+              ['arxiv', 'arXiv'],
+              ['semantic_scholar', 'Semantic Scholar'],
+              ['openalex', 'OpenAlex'],
+              ['core', 'CORE'],
+            ] as const).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => toggleSource(key)}
+                style={{
+                  fontSize: '12px',
+                  padding: '3px 10px',
+                  borderRadius: '12px',
+                  border: `1px solid ${scrapeSources.has(key) ? 'var(--accent-blue)' : 'var(--border-primary)'}`,
+                  background: scrapeSources.has(key) ? 'rgba(68, 147, 248, 0.15)' : 'transparent',
+                  color: scrapeSources.has(key) ? 'var(--accent-blue)' : 'var(--text-muted)',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {!scraping && scrapeLogs.length === 0 && (
             <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '8px', marginBottom: 0 }}>
               Searches arXiv, Semantic Scholar, OpenAlex, and CORE for scholarly papers.
             </p>
+          )}
+
+          {/* Live feed */}
+          {(scraping || scrapeLogs.length > 0) && (
+            <div style={{
+              marginTop: '12px',
+              background: 'rgba(2, 6, 18, 0.6)',
+              border: '1px solid rgba(255,255,255,0.06)',
+              borderRadius: '12px',
+              padding: '14px 18px',
+              fontFamily: '"JetBrains Mono", "Fira Code", monospace',
+              fontSize: '12px',
+              lineHeight: 1.8,
+              maxHeight: '200px',
+              overflowY: 'auto',
+            }}>
+              {scrapeLogs.map((log, i) => {
+                let color = 'var(--text-secondary)'
+                if (log.stage === 'source_done') color = 'var(--accent-primary)'
+                else if (log.stage === 'source_error') color = 'var(--status-failed)'
+                else if (log.stage === 'searching') color = 'var(--accent-purple)'
+                else if (log.stage === 'done') color = 'var(--accent-primary)'
+                else if (log.stage === 'saving' || log.stage === 'dedup') color = 'var(--accent-blue)'
+
+                return (
+                  <div key={i} style={{ color, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {log.stage === 'searching' && <span className="spinner" style={{ width: 10, height: 10 }} />}
+                    {log.stage === 'source_done' && <span style={{ color: 'var(--accent-primary)' }}>+</span>}
+                    {log.stage === 'done' && <span>+</span>}
+                    <span>{log.message}</span>
+                  </div>
+                )
+              })}
+              {scraping && scrapeLogs.length > 0 && scrapeLogs[scrapeLogs.length - 1].stage === 'searching' && null}
+              {scraping && (
+                <div style={{ color: 'var(--accent-purple)' }}>
+                  <span style={{ animation: 'blink 1s step-end infinite' }}>_</span>
+                </div>
+              )}
+              {/* Progress bar */}
+              {scraping && scrapeLogs.length > 0 && (() => {
+                const last = scrapeLogs[scrapeLogs.length - 1]
+                if (last.sources_total && last.sources_done !== undefined) {
+                  const pct = (last.sources_done / last.sources_total) * 100
+                  return (
+                    <div style={{ marginTop: '8px', background: 'rgba(255,255,255,0.04)', borderRadius: '4px', height: '3px', overflow: 'hidden' }}>
+                      <div style={{ width: `${pct}%`, height: '100%', background: 'var(--gradient-green)', transition: 'width 0.5s ease', borderRadius: '4px' }} />
+                    </div>
+                  )
+                }
+                return null
+              })()}
+            </div>
           )}
         </div>
       )}
 
       {scrapeMsg && (
         <div style={{
-          background: 'rgba(118, 185, 0, 0.1)',
-          border: '1px solid rgba(118, 185, 0, 0.3)',
+          background: 'rgba(34, 197, 94, 0.1)',
+          border: '1px solid rgba(34, 197, 94, 0.3)',
           borderRadius: 'var(--radius-sm)',
           padding: '8px 12px',
           color: 'var(--accent-green)',
@@ -265,8 +398,8 @@ export default function Papers() {
         <div style={{
           marginBottom: '16px',
           padding: '8px 12px',
-          background: 'rgba(126, 184, 255, 0.1)',
-          border: '1px solid rgba(126, 184, 255, 0.2)',
+          background: 'rgba(59, 130, 246, 0.1)',
+          border: '1px solid rgba(59, 130, 246, 0.2)',
           borderRadius: 'var(--radius-sm)',
           fontSize: '13px',
           color: 'var(--text-secondary)',
@@ -342,7 +475,7 @@ export default function Papers() {
                   </td>
                   <td style={tdStyle}>
                     <div style={{ fontWeight: 500, color: 'var(--text-primary)', lineHeight: 1.4, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      {p.pdf_path ? (
+                      {(p.pdf_path || p.pdf_url) ? (
                         <a
                           href="#"
                           onClick={async (e) => {
@@ -389,7 +522,7 @@ export default function Papers() {
                         fontSize: '11px',
                         padding: '2px 6px',
                         borderRadius: '3px',
-                        background: p.source === 'arxiv' ? 'rgba(126, 184, 255, 0.15)' : 'rgba(126, 217, 195, 0.15)',
+                        background: p.source === 'arxiv' ? 'rgba(59, 130, 246, 0.15)' : 'rgba(34, 197, 94, 0.12)',
                         color: p.source === 'arxiv' ? 'var(--accent-blue)' : 'var(--accent-green)',
                       }}>
                         {p.source === 'semantic_scholar' ? 'S2' : p.source}
@@ -403,7 +536,7 @@ export default function Papers() {
                     {p.qa_pair_count > 0 ? p.qa_pair_count : '—'}
                   </td>
                   <td style={tdStyle}>
-                    {p.pdf_path ? (
+                    {(p.pdf_path || p.pdf_url) ? (
                       <button
                         onClick={() => downloadPaperPdf(p.id, p.title)}
                         style={{
