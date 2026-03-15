@@ -119,3 +119,47 @@ export function createLoopSSE(
     onDone,
   )
 }
+
+export function createClosedLoopSSE(
+  onMessage: (msg: any) => void,
+  onDone?: () => void,
+): () => void {
+  const token = localStorage.getItem('access_token')
+  let lastId = -1
+  let retryCount = 0
+  let es: EventSource | null = null
+  let closed = false
+
+  function connect() {
+    if (closed) return
+    const url = `/api/closed-loop/events?last_id=${lastId}${token ? `&token=${token}` : ''}`
+    es = new EventSource(url)
+
+    es.onmessage = (event) => {
+      retryCount = 0
+      try {
+        const data = JSON.parse(event.data)
+        if (event.lastEventId) lastId = parseInt(event.lastEventId, 10)
+        if (data.type === 'done') {
+          onMessage(data)
+          onDone?.()
+          return
+        }
+        onMessage(data)
+      } catch (e) {
+        console.error('Closed-loop SSE parse error:', e)
+      }
+    }
+
+    es.onerror = () => {
+      es?.close()
+      if (closed) return
+      retryCount++
+      const delay = Math.min(2000 * Math.pow(2, retryCount - 1), 30000)
+      setTimeout(connect, delay)
+    }
+  }
+
+  connect()
+  return () => { closed = true; es?.close() }
+}

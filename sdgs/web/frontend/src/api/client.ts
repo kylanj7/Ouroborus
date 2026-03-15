@@ -1030,3 +1030,49 @@ export interface LoopConfigEntry {
 
 export const listLoopConfigs = () =>
   request<LoopConfigEntry[]>('/loop/configs')
+
+// --- Closed-Loop API ---
+
+export interface ClosedLoopCycle {
+  cycle: number
+  benchmark_scores: Record<string, number>
+  gate_passed: boolean | null
+  gate_delta: number
+  consecutive_gate_failures: number
+  dataset_size: number
+  training_loss: number | null
+  merged_model_path: string | null
+  tally_metadata: Record<string, any>
+  dataset_path: string | null
+  adapter_path: string | null
+  started_at: string | null
+  completed_at: string | null
+}
+
+export interface ClosedLoopStatus {
+  loop_id: string | null
+  status: string
+  current_cycle: number
+  current_stage: string | null
+  consecutive_gate_failures: number
+  stop_reason: string | null
+}
+
+export const startClosedLoop = (configPath?: string) =>
+  request<{ loop_id: string; status: string }>('/api/closed-loop/start', {
+    method: 'POST',
+    body: JSON.stringify({ config_path: configPath || null }),
+  })
+
+export const stopClosedLoop = () =>
+  request<{ loop_id: string; status: string }>('/api/closed-loop/stop', {
+    method: 'POST',
+  })
+
+export const getClosedLoopStatus = () =>
+  request<ClosedLoopStatus>('/api/closed-loop/status')
+
+export const getClosedLoopHistory = (loopId?: string) => {
+  const params = loopId ? `?loop_id=${loopId}` : ''
+  return request<{ loop_id: string | null; cycles: ClosedLoopCycle[] }>(`/api/closed-loop/history${params}`)
+}
