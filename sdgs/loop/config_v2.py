@@ -53,6 +53,8 @@ class TallyConfig:
     max_clusters: int = 10
     history_window: int = 5
     max_retries: int = 3
+    max_tool_calls: int = 20
+    timeout_seconds: int = 600
 
 
 @dataclass
@@ -72,6 +74,7 @@ class CurationConfig:
     min_pairs_per_cycle: int = 1000
     max_pairs_per_cycle: int = -1
     format: str = "chain-of-thought"
+    max_retries_per_pair: int = 3
     verification: VerificationConfig = field(default_factory=VerificationConfig)
 
 

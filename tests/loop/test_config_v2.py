@@ -171,3 +171,15 @@ def test_load_from_yaml(tmp_path: Path):
     assert cfg.logging.cycle_log == "loop_log.jsonl"
     assert cfg.logging.project_log == "loop_projects.json"
     assert cfg.termination.target_score == 90.0  # overridden above
+
+
+def test_tally_config_new_fields():
+    from sdgs.loop.config_v2 import ClosedLoopConfig
+    config = ClosedLoopConfig()
+    assert config.tally.max_tool_calls == 20
+    assert config.tally.timeout_seconds == 600
+
+def test_curation_config_new_fields():
+    from sdgs.loop.config_v2 import ClosedLoopConfig
+    config = ClosedLoopConfig()
+    assert config.curation.max_retries_per_pair == 3
