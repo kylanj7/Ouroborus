@@ -1,7 +1,7 @@
 # Ouroborus
 ![0b5de2bd-29f1-4bab-ab10-0b41232591a5](https://github.com/user-attachments/assets/7a25d8dc-db1a-4a31-8240-b54113216ad7)
 
-Full-stack platform for synthetic dataset generation, model fine-tuning, evaluation, and autonomous self-improvement loops. Generate reasoning datasets from scholarly papers, fine-tune models with LoRA, evaluate with RAG-grounded judges, and let the evolution loop close the cycle automatically.
+Full-stack platform for synthetic dataset generation, model fine-tuning, evaluation, and autonomous self-improvement loops. Generate reasoning datasets from scholarly papers, fine-tune models with LoRA, evaluate against public benchmarks, and let the closed loop diagnose weaknesses, retrieve papers, curate targeted training data, and improve the model iteratively.
 
 ## Features
 
@@ -17,6 +17,7 @@ Full-stack platform for synthetic dataset generation, model fine-tuning, evaluat
 - **Merge and quantize** -- LoRA merge + GGUF conversion in one step
 - **HuggingFace integration** -- import datasets, push models and datasets to the Hub
 - **Evolution loop** -- autonomous generate -> train -> evaluate -> analyze cycle that improves models iteratively
+- **Closed-loop self-feeding** -- benchmark-driven training loop: diagnose failures with LangChain tally agent, retrieve papers on weak areas, generate chain-of-thought reasoning datasets with 3-layer verification (citation matching, NLI entailment, chunk tracing), train via merge-and-continue LoRA, quality gate with rollback
 
 ## Supported Providers
 
@@ -35,6 +36,9 @@ pip install -e .
 
 # With web UI and training engine
 pip install -e ".[web]"
+
+# With closed-loop training
+pip install -e ".[loop]"
 
 # With GPU power tracking
 pip install -e ".[gpu]"
@@ -96,6 +100,24 @@ sdgs loop stop
 sdgs loop history
 ```
 
+### Closed-loop self-feeding training
+
+```bash
+# Install loop dependencies
+pip install -e ".[loop]"
+
+# Start a closed-loop run (benchmarks -> diagnose -> retrieve -> curate -> train -> merge -> eval -> gate)
+sdgs closed-loop start --config configs/closed_loop.yaml
+
+# Monitor progress
+sdgs closed-loop status
+
+# Graceful stop
+sdgs closed-loop stop
+```
+
+The closed loop runs entirely locally via Ollama. It benchmarks the model (GPQA, MMLU, SciBench), uses a LangChain tally agent to diagnose failures, retrieves papers on weak areas, generates chain-of-thought reasoning datasets with 3-layer verification, trains via merge-and-continue LoRA, and gates each cycle on benchmark improvement (>= 0.5pp to keep, rollback otherwise).
+
 ## Quick Start: Web UI
 
 ```bash
@@ -134,10 +156,16 @@ Knowledge Base:
   PDFs -> chunk (RecursiveCharacterTextSplitter) -> embed (MiniLM-L6-v2) -> ChromaDB
        -> semantic search / RAG chat (Ollama)
 
-Evolution Loop:
+Evolution Loop (legacy):
   generate -> format -> install config -> train -> convert -> evaluate -> analyze
      ^                                                                      |
      '---------- feedback (weak domains, sample budgets, error patterns) ---'
+
+Closed Loop (self-feeding):
+  baseline benchmark -> tally agent diagnoses failures -> retrieve papers
+     ^                                                         |
+     |    gate (keep/rollback) <- eval <- merge <- train <- curate CoT data
+     '--- quality gate passes: merge-and-continue, next cycle ----'
 ```
 
 ## CLI Reference
@@ -156,6 +184,9 @@ Evolution Loop:
 | `sdgs loop status` | Show current loop status |
 | `sdgs loop stop` | Gracefully stop the running loop |
 | `sdgs loop history` | View past loop runs |
+| `sdgs closed-loop start` | Start a closed-loop self-feeding training run |
+| `sdgs closed-loop status` | Show closed-loop status |
+| `sdgs closed-loop stop` | Gracefully stop the closed loop |
 
 ## Web API
 
@@ -212,28 +243,43 @@ YAML files in `configs/`:
 - `loop.yaml` -- default loop config (all domains, full training)
 - `loop_quick_test.yaml` -- minimal single-evolution test config
 
+### Closed-loop configs
+
+YAML files in `configs/`:
+
+- `closed_loop.yaml` -- production closed-loop config (50 cycles, 85% target, GPQA+MMLU+SciBench)
+- `closed_loop_test.yaml` -- minimal test config (3 cycles, single benchmark)
+
 ```yaml
-qftl:
-  base_url: "http://localhost:8000"
-  username: ""
-  password: ""
-  poll_interval_seconds: 30
-
-evolution:
-  max_evolutions: 10
-  target_accuracy: 70.0
-
-generation:
-  provider: "ollama"
-  domains: [quantum, physics, chemistry, biology, math]
+gate:
+  improvement_threshold: 0.5  # 0.5pp minimum to keep merge
+  fail_cap: 3                 # pause after 3 consecutive failures
 
 training:
-  model_config: "qwen2.5-14b-instruct"
-  training_config: "default"
+  strategy: "merge-and-continue"
+  base_model: "Qwen/Qwen2.5-7B-Instruct"
+  checkpoint_dir: "models/merged/"
+  max_checkpoints: 5
 
-evaluation:
-  sample_count: 50
-  judge_model: "nemotron-3-nano:latest"
+benchmarks:
+  suites: [gpqa_diamond, mmlu_college_physics, mmlu_conceptual_physics, scibench]
+
+tally:
+  model: "gpt-oss:120b"
+  max_clusters: 10
+
+curation:
+  model: "gpt-oss:120b"
+  min_pairs_per_cycle: 1000
+  format: "chain-of-thought"
+  verification:
+    citation_matching: true
+    entailment_model: "microsoft/deberta-v3-base-mnli"
+    embedding_model: "all-MiniLM-L6-v2"
+
+termination:
+  target_score: 85.0
+  max_cycles: 50
 ```
 
 ## Project Structure
@@ -252,12 +298,23 @@ sdgs/
   tracker.py           # Token usage and GPU power tracking
 
   loop/                # Evolution loop (autonomous self-improvement)
-    orchestrator.py    # State machine: generate -> train -> evaluate -> analyze
-    bridge.py          # HTTP client for the web API
-    formatter.py       # SDGS output -> training format converter
-    analyzer.py        # Evaluation analysis and feedback signal generation
-    config.py          # Loop configuration loader
-    state.py           # SQLite-backed loop state persistence
+    orchestrator.py    # Legacy state machine: generate -> train -> evaluate -> analyze
+    orchestrator_v2.py # Closed-loop: benchmark -> tally -> retrieve -> curate -> train -> merge -> eval -> gate
+    tally_agent.py     # LangChain ReAct agent for failure diagnosis
+    curator.py         # Chain-of-thought generation with 3-layer verification
+    retriever.py       # Tally-driven paper retrieval
+    benchmark_runner.py # lm-eval harness wrapper (GPQA, MMLU, SciBench)
+    quality_gate.py    # Keep/rollback decision, checkpoint management
+    cycle_logger.py    # Per-cycle and project-level logging
+    email_reporter.py  # Fail cap email escalation
+    vram.py            # Ollama model load/unload helpers
+    config_v2.py       # Closed-loop configuration dataclasses
+    state_v2.py        # Closed-loop state persistence (Stage, StopReason, CycleRecord)
+    bridge.py          # Legacy HTTP client for the web API
+    formatter.py       # Legacy SDGS output -> training format converter
+    analyzer.py        # Legacy evaluation analysis
+    config.py          # Legacy loop configuration loader
+    state.py           # Legacy SQLite-backed loop state
 
   web/                 # Web application
     app.py             # FastAPI application
