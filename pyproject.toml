@@ -32,6 +32,7 @@ web = [
 loop = [
     "langchain>=0.3",
     "langchain-ollama>=0.3",
+    "langgraph>=0.2",
     "lm-eval>=0.4",
     "sentence-transformers>=3.0",
 ]
