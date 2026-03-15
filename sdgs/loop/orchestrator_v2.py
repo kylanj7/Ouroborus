@@ -162,6 +162,10 @@ class ClosedLoopOrchestrator:
                 history,
                 model=self._config.tally.model,
                 max_retries=self._config.tally.max_retries,
+                max_tool_calls=self._config.tally.max_tool_calls,
+                timeout_seconds=self._config.tally.timeout_seconds,
+                log_dir=self._config.logging.log_dir,
+                history_window=self._config.tally.history_window,
             )
             logger.info("Tally: %d clusters, %d search queries",
                         len(tally_metadata.get("clusters", [])),
