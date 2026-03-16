@@ -129,10 +129,10 @@ async def get_history(loop_id: str | None = Query(None)):
     """Return cycle history for a closed-loop run."""
     resolved_id = loop_id or get_active_loop_id()
     if resolved_id is None:
-        raise HTTPException(status_code=404, detail="No closed-loop run found")
+        return {"loop_id": None, "cycles": []}
     state = _state_store.get_loop(resolved_id)
     if state is None:
-        raise HTTPException(status_code=404, detail=f"Loop {resolved_id} not found")
+        return {"loop_id": None, "cycles": []}
     return {
         "loop_id": state.loop_id,
         "cycles": [_cycle_to_dict(r) for r in state.cycles],
