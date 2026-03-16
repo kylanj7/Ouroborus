@@ -108,16 +108,17 @@ async def get_status():
     """Get the current closed-loop status."""
     loop_id = get_active_loop_id()
     if loop_id is None:
-        return {"loop_id": None, "status": "idle", "current_cycle": 0, "current_stage": None}
+        return {"loop_id": None, "status": "idle", "current_cycle": 0, "current_stage": None, "consecutive_gate_failures": 0, "stop_reason": None}
     state = _state_store.get_loop(loop_id)
     if state is None:
-        return {"loop_id": None, "status": "idle", "current_cycle": 0, "current_stage": None}
+        return {"loop_id": None, "status": "idle", "current_cycle": 0, "current_stage": None, "consecutive_gate_failures": 0, "stop_reason": None}
     return {
         "loop_id": state.loop_id,
         "status": state.status,
         "current_cycle": state.current_cycle,
         "current_stage": state.current_stage,
-        "stop_reason": state.stop_reason,
+        "consecutive_gate_failures": state.cycles[-1].consecutive_gate_failures if state.cycles else 0,
+        "stop_reason": state.stop_reason.value if state.stop_reason else None,
         "stop_requested": state.stop_requested,
         "created_at": state.created_at,
         "updated_at": state.updated_at,
