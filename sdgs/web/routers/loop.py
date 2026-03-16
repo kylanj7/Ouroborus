@@ -22,7 +22,13 @@ from ..services.job_runner import init_loop_stream, emit_loop_event, finish_loop
 
 router = APIRouter()
 
-_store = StateStore()
+_store: StateStore | None = None
+
+def _get_store() -> StateStore:
+    global _store
+    if _store is None:
+        _store = StateStore()
+    return _store
 _running_threads: dict[str, threading.Thread] = {}
 _BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
 
@@ -95,7 +101,7 @@ async def start_loop(
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """Start a new evolution loop in a background thread."""
-    active = _store.get_active_loop()
+    active = _get_store().get_active_loop()
     if active:
         raise HTTPException(status_code=409, detail=f"Loop {active.loop_id} is already running")
 
@@ -166,18 +172,18 @@ async def start_loop(
 @router.post("/stop")
 async def stop_loop():
     """Request a graceful stop of the active loop."""
-    active = _store.get_active_loop()
+    active = _get_store().get_active_loop()
     if not active:
         raise HTTPException(status_code=404, detail="No active loop to stop")
 
-    _store.request_stop(active.loop_id)
+    _get_store().request_stop(active.loop_id)
     return {"status": "stop_requested", "loop_id": active.loop_id}
 
 
 @router.get("/status", response_model=LoopStatusResponse | None)
 async def get_status():
     """Get status of the most recent loop."""
-    state = _store.get_latest_loop()
+    state = _get_store().get_latest_loop()
     if not state:
         return None
     return _state_to_response(state)
@@ -186,7 +192,7 @@ async def get_status():
 @router.get("/status/{loop_id}", response_model=LoopStatusResponse)
 async def get_loop_status(loop_id: str):
     """Get status of a specific loop."""
-    state = _store.get_loop(loop_id)
+    state = _get_store().get_loop(loop_id)
     if not state:
         raise HTTPException(status_code=404, detail="Loop not found")
     return _state_to_response(state)
@@ -195,7 +201,7 @@ async def get_loop_status(loop_id: str):
 @router.get("/list", response_model=list[LoopListEntry])
 async def list_loops(limit: int = 20):
     """List all loop runs."""
-    rows = _store.list_loops(limit=limit)
+    rows = _get_store().list_loops(limit=limit)
     return [LoopListEntry(**r) for r in rows]
 
 
