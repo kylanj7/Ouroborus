@@ -16,7 +16,7 @@ training:
 
 benchmarks:
   suites:
-    - gpqa_diamond_zeroshot
+    - arc_challenge
     - mmlu_college_physics
     - mmlu_conceptual_physics
   batch_size: 4

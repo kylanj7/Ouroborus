@@ -38,7 +38,7 @@ class TrainingStrategyConfig:
 @dataclass
 class BenchmarkConfig:
     suites: list[str] = field(default_factory=lambda: [
-        "gpqa_diamond_zeroshot",
+        "arc_challenge",
         "mmlu_college_physics",
         "mmlu_conceptual_physics",
     ])
