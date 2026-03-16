@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Play, Square, ChevronDown, ChevronUp } from 'lucide-react'
+import { Play, Square, ChevronDown, ChevronUp, Settings } from 'lucide-react'
 import { useLoopStore } from '../store/loopStore'
 import { useLoopSSE } from '../hooks/useLoopSSE'
 import StagePipeline from '../components/loop/StagePipeline'
@@ -12,7 +12,23 @@ export default function Loop() {
   const store = useLoopStore()
   const { logs, done, clear } = useLoopSSE()
   const [showLogs, setShowLogs] = useState(false)
+  const [showConfig, setShowConfig] = useState(false)
   const logEndRef = useRef<HTMLDivElement>(null)
+
+  // Config form state
+  const [configPath, setConfigPath] = useState('configs/closed_loop.yaml')
+  const [baseModel, setBaseModel] = useState('Qwen/Qwen2.5-7B-Instruct')
+  const [learningRate, setLearningRate] = useState('1e-5')
+  const [numEpochs, setNumEpochs] = useState(3)
+  const [batchSize, setBatchSize] = useState(4)
+  const [gradAccumSteps, setGradAccumSteps] = useState(4)
+  const [loraRank, setLoraRank] = useState(64)
+  const [loraAlpha, setLoraAlpha] = useState(128)
+  const [targetScore, setTargetScore] = useState(85)
+  const [maxCycles, setMaxCycles] = useState(50)
+  const [gateThreshold, setGateThreshold] = useState(0.5)
+  const [minPairs, setMinPairs] = useState(1000)
+  const [tallyModel, setTallyModel] = useState('gpt-oss:120b')
 
   useEffect(() => {
     store.fetchStatus()
@@ -117,7 +133,7 @@ export default function Loop() {
 
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button
-            onClick={() => { store.start(); clear() }}
+            onClick={() => { store.start(configPath); clear() }}
             disabled={isRunning || store.loading}
             style={btnStyle('start', isRunning || store.loading)}
           >
@@ -135,6 +151,87 @@ export default function Loop() {
           )}
         </div>
       </div>
+
+      {/* Config Panel -- collapsible */}
+      {!isRunning && (
+        <div style={{ ...glassCard, marginBottom: 16 }}>
+          <button
+            onClick={() => setShowConfig(v => !v)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600, padding: 0 }}
+          >
+            <Settings size={16} />
+            {showConfig ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            Training Configuration
+          </button>
+
+          {showConfig && (
+            <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
+              {/* Config Preset */}
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label style={labelStyle}>Config File</label>
+                <select value={configPath} onChange={e => setConfigPath(e.target.value)} style={inputStyle}>
+                  <option value="configs/closed_loop.yaml">closed_loop.yaml (production)</option>
+                  <option value="configs/closed_loop_test.yaml">closed_loop_test.yaml (test)</option>
+                </select>
+              </div>
+
+              {/* Model */}
+              <div>
+                <label style={labelStyle}>Base Model</label>
+                <input value={baseModel} onChange={e => setBaseModel(e.target.value)} style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>LoRA Rank</label>
+                <input type="number" value={loraRank} onChange={e => setLoraRank(Number(e.target.value))} style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>LoRA Alpha</label>
+                <input type="number" value={loraAlpha} onChange={e => setLoraAlpha(Number(e.target.value))} style={inputStyle} />
+              </div>
+
+              {/* Training */}
+              <div>
+                <label style={labelStyle}>Learning Rate</label>
+                <input value={learningRate} onChange={e => setLearningRate(e.target.value)} style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>Epochs</label>
+                <input type="number" value={numEpochs} onChange={e => setNumEpochs(Number(e.target.value))} style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>Batch Size</label>
+                <input type="number" value={batchSize} onChange={e => setBatchSize(Number(e.target.value))} style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>Grad Accumulation</label>
+                <input type="number" value={gradAccumSteps} onChange={e => setGradAccumSteps(Number(e.target.value))} style={inputStyle} />
+              </div>
+
+              {/* Loop */}
+              <div>
+                <label style={labelStyle}>Target Score (%)</label>
+                <input type="number" value={targetScore} onChange={e => setTargetScore(Number(e.target.value))} style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>Max Cycles</label>
+                <input type="number" value={maxCycles} onChange={e => setMaxCycles(Number(e.target.value))} style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>Gate Threshold (pp)</label>
+                <input type="number" step="0.1" value={gateThreshold} onChange={e => setGateThreshold(Number(e.target.value))} style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>Min Pairs / Cycle</label>
+                <input type="number" value={minPairs} onChange={e => setMinPairs(Number(e.target.value))} style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>Tally Model</label>
+                <input value={tallyModel} onChange={e => setTallyModel(e.target.value)} style={inputStyle} />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Error display */}
       {store.error && (
@@ -225,6 +322,28 @@ const glassCard: React.CSSProperties = {
   border: '1px solid var(--border-color)',
   borderRadius: 12,
   padding: 24,
+}
+
+const labelStyle: React.CSSProperties = {
+  display: 'block',
+  fontSize: 11,
+  fontWeight: 600,
+  color: 'var(--text-muted)',
+  marginBottom: 4,
+  textTransform: 'uppercase',
+  letterSpacing: '0.5px',
+}
+
+const inputStyle: React.CSSProperties = {
+  width: '100%',
+  padding: '8px 12px',
+  borderRadius: 8,
+  border: '1px solid var(--border-color)',
+  background: 'rgba(0, 0, 0, 0.3)',
+  color: 'var(--text-primary)',
+  fontSize: 13,
+  outline: 'none',
+  boxSizing: 'border-box',
 }
 
 function btnStyle(variant: 'start' | 'stop', disabled: boolean): React.CSSProperties {
