@@ -134,9 +134,11 @@ def start_closed_loop(config_path: str | None = None) -> str:
 
         except Exception as exc:
             tb = traceback.format_exc()
-            log.error("[closed-loop:%s] Orchestrator failed: %s", loop_id, exc)
+            import sys
+            print(f"[closed-loop:{loop_id}] CRASH:\n{tb}", file=sys.stderr, flush=True)
+            log.error("[closed-loop:%s] Orchestrator failed: %s\n%s", loop_id, exc, tb)
             emit_cl_event(loop_id, {"type": "error", "data": str(exc)})
-            emit_cl_event(loop_id, {"type": "log", "data": tb})
+            emit_cl_event(loop_id, {"type": "log", "message": f"ERROR: {tb}"})
             emit_cl_event(loop_id, {"type": "status", "data": "failed"})
 
         finally:

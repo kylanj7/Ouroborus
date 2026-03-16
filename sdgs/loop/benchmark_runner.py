@@ -98,7 +98,7 @@ def run_benchmarks(
         pretrained=model_path,
         batch_size=batch_size,
         dtype="float16",
-        device_map_option="auto",
+        device="cuda",
     )
 
     try:
