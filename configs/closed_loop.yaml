@@ -40,7 +40,7 @@ curation:
   max_retries_per_pair: 3
   verification:
     citation_matching: true
-    entailment_model: "microsoft/deberta-v3-base-mnli"
+    entailment_model: "facebook/bart-large-mnli"
     entailment_min_ratio: 0.5
     embedding_model: "all-MiniLM-L6-v2"
     chunk_similarity_threshold: 0.3

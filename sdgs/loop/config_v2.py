@@ -60,7 +60,7 @@ class TallyConfig:
 @dataclass
 class VerificationConfig:
     citation_matching: bool = True
-    entailment_model: str = "microsoft/deberta-v3-base-mnli"
+    entailment_model: str = "facebook/bart-large-mnli"
     entailment_min_ratio: float = 0.5
     embedding_model: str = "all-MiniLM-L6-v2"
     chunk_similarity_threshold: float = 0.3
