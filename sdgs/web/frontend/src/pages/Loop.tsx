@@ -2,11 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import { Play, Square, ChevronDown, ChevronUp } from 'lucide-react'
 import { useLoopStore } from '../store/loopStore'
 import { useLoopSSE } from '../hooks/useLoopSSE'
-import { StagePipeline } from '../components/loop/StagePipeline'
-import { BenchmarkChart } from '../components/loop/BenchmarkChart'
-import { TallyDiagnosis } from '../components/loop/TallyDiagnosis'
-import { GateBanner } from '../components/loop/GateBanner'
-import { CycleHistory } from '../components/loop/CycleHistory'
+import StagePipeline from '../components/loop/StagePipeline'
+import BenchmarkChart from '../components/loop/BenchmarkChart'
+import TallyDiagnosis from '../components/loop/TallyDiagnosis'
+import GateBanner from '../components/loop/GateBanner'
+import CycleHistory from '../components/loop/CycleHistory'
 
 export default function Loop() {
   const store = useLoopStore()
