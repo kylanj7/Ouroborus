@@ -86,8 +86,20 @@ def run_benchmarks(
     from lm_eval import evaluator  # noqa: PLC0415
     from lm_eval.models.huggingface import HFLM  # noqa: PLC0415
 
-    logger.info("Loading model %s for benchmarking", model_path)
-    model = HFLM(pretrained=model_path, batch_size=batch_size)
+    import torch
+    import gc
+
+    # Free any existing CUDA memory before loading
+    torch.cuda.empty_cache()
+    gc.collect()
+
+    logger.info("Loading model %s for benchmarking (dtype=float16)", model_path)
+    model = HFLM(
+        pretrained=model_path,
+        batch_size=batch_size,
+        dtype="float16",
+        device_map_option="auto",
+    )
 
     try:
         logger.info("Running suites: %s", suites)
@@ -98,6 +110,8 @@ def run_benchmarks(
         )
     finally:
         del model
+        torch.cuda.empty_cache()
+        gc.collect()
         logger.info("Model deleted -- VRAM freed")
 
     # Extract numeric scores as percentages.
