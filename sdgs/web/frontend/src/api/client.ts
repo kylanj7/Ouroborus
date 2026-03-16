@@ -1059,20 +1059,20 @@ export interface ClosedLoopStatus {
 }
 
 export const startClosedLoop = (configPath?: string) =>
-  request<{ loop_id: string; status: string }>('/api/closed-loop/start', {
+  request<{ loop_id: string; status: string }>('/closed-loop/start', {
     method: 'POST',
     body: JSON.stringify({ config_path: configPath || null }),
   })
 
 export const stopClosedLoop = () =>
-  request<{ loop_id: string; status: string }>('/api/closed-loop/stop', {
+  request<{ loop_id: string; status: string }>('/closed-loop/stop', {
     method: 'POST',
   })
 
 export const getClosedLoopStatus = () =>
-  request<ClosedLoopStatus>('/api/closed-loop/status')
+  request<ClosedLoopStatus>('/closed-loop/status')
 
 export const getClosedLoopHistory = (loopId?: string) => {
   const params = loopId ? `?loop_id=${loopId}` : ''
-  return request<{ loop_id: string | null; cycles: ClosedLoopCycle[] }>(`/api/closed-loop/history${params}`)
+  return request<{ loop_id: string | null; cycles: ClosedLoopCycle[] }>(`/closed-loop/history${params}`)
 }
