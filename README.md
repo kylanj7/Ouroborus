@@ -3,6 +3,89 @@
 
 Full-stack platform for synthetic dataset generation, model fine-tuning, evaluation, and autonomous self-improvement loops. Generate reasoning datasets from scholarly papers, fine-tune models with LoRA, evaluate against public benchmarks, and let the closed loop diagnose weaknesses, retrieve papers, curate targeted training data, and improve the model iteratively.
 
+### Supported APIs & Integrations
+
+![Ollama](https://img.shields.io/badge/Ollama-Local_LLM-000000?style=for-the-badge&logo=ollama&logoColor=white)
+![OpenAI](https://img.shields.io/badge/OpenAI-412991?style=for-the-badge&logo=openai&logoColor=white)
+![Anthropic](https://img.shields.io/badge/Anthropic-Claude-D4A574?style=for-the-badge&logo=anthropic&logoColor=white)
+![Google Gemini](https://img.shields.io/badge/Google-Gemini-4285F4?style=for-the-badge&logo=google&logoColor=white)
+![Perplexity](https://img.shields.io/badge/Perplexity-1FB8CD?style=for-the-badge&logo=perplexity&logoColor=white)
+![HuggingFace](https://img.shields.io/badge/HuggingFace-FFD21E?style=for-the-badge&logo=huggingface&logoColor=black)
+![Semantic Scholar](https://img.shields.io/badge/Semantic_Scholar-1857B6?style=for-the-badge&logoColor=white)
+![arXiv](https://img.shields.io/badge/arXiv-B31B1B?style=for-the-badge&logo=arxiv&logoColor=white)
+![OpenAlex](https://img.shields.io/badge/OpenAlex-A6CE39?style=for-the-badge&logoColor=white)
+![CORE](https://img.shields.io/badge/CORE_API-333333?style=for-the-badge&logoColor=white)
+
+### Built With
+
+![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
+![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)
+![LangChain](https://img.shields.io/badge/LangChain-1C3C3C?style=for-the-badge&logo=langchain&logoColor=white)
+![ChromaDB](https://img.shields.io/badge/ChromaDB-FF6F61?style=for-the-badge&logoColor=white)
+![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-D71F00?style=for-the-badge&logo=sqlalchemy&logoColor=white)
+![Three.js](https://img.shields.io/badge/Three.js-000000?style=for-the-badge&logo=threedotjs&logoColor=white)
+![Vite](https://img.shields.io/badge/Vite-646CFF?style=for-the-badge&logo=vite&logoColor=white)
+
+---
+
+### Modules
+
+<table>
+<tr>
+<td width="50%">
+
+**Knowledge Galaxy**
+3D force-directed visualization of papers, datasets, and Q&A relationships with topic clustering
+
+![Galaxy Visualizer](docs/images/galaxy-visualizer.png)
+</td>
+<td width="50%">
+
+**Evolution Loop**
+Autonomous closed-loop training with benchmark evaluation, tally diagnosis, and quality gates
+
+![Evolution Loop](docs/images/evolution-loop.png)
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+**Dataset Generation**
+Multi-provider Q&A generation from scholarly papers with live progress streaming
+
+![Dataset Generation](docs/images/dataset-generation.png)
+</td>
+<td width="50%">
+
+**Training Configuration**
+LoRA fine-tuning with full hyperparameter control, focal loss, and live metrics
+
+![Training Config](docs/images/training-config.png)
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+**Knowledge Graph**
+GPU-instanced 3D rendering of paper-dataset-QA relationships
+
+![Knowledge Graph](docs/images/knowledge-graph.png)
+</td>
+<td width="50%">
+
+**Loop Running**
+Real-time monitoring with stage pipeline, benchmark charts, and tally diagnosis
+
+![Loop Running](docs/images/loop-running.png)
+</td>
+</tr>
+</table>
+
+---
+
 ## Features
 
 - **Multi-provider dataset generation** -- plug in any OpenAI-compatible LLM (Ollama, OpenAI, Anthropic, Gemini, Perplexity)
