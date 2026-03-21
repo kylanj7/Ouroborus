@@ -94,7 +94,7 @@ def get_active_loop_id() -> str | None:
 # Orchestrator lifecycle
 # ---------------------------------------------------------------------------
 
-def start_closed_loop(config_path: str | None = None) -> str:
+def start_closed_loop(config_path: str | None = None, seed_dataset_path: str | None = None) -> str:
     """Start a new closed-loop run in a background thread.
 
     Raises RuntimeError if a loop is already active.
@@ -131,7 +131,7 @@ def start_closed_loop(config_path: str | None = None) -> str:
         try:
             emit_cl_event(loop_id, {"type": "status", "data": "running"})
             config = load_closed_loop_config(config_path)
-            orchestrator = ClosedLoopOrchestrator(config=config)
+            orchestrator = ClosedLoopOrchestrator(config=config, seed_dataset_path=seed_dataset_path)
             orchestrator.run(loop_id=loop_id)
             emit_cl_event(loop_id, {"type": "status", "data": "completed"})
             log.info("[closed-loop:%s] Orchestrator finished", loop_id)

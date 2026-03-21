@@ -39,6 +39,7 @@ _EMPTY_SENTINEL = object()
 
 class ClosedLoopStartRequest(BaseModel):
     config_path: str | None = None
+    seed_dataset_id: int | None = None
 
 
 # ------------------------------------------------------------------
@@ -82,8 +83,34 @@ async def start_loop(
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """Start a new closed-loop training run."""
+    # If seed dataset specified, export it to a JSONL path for the orchestrator
+    seed_dataset_path = None
+    if req.seed_dataset_id is not None:
+        from ..db.database import SessionLocal
+        from ..db.models import Dataset, QAPair
+        import json, tempfile, os
+        db = SessionLocal()
+        try:
+            ds = db.query(Dataset).filter(Dataset.id == req.seed_dataset_id).first()
+            if not ds:
+                raise HTTPException(400, f"Dataset {req.seed_dataset_id} not found")
+            pairs = db.query(QAPair).filter(QAPair.dataset_id == ds.id).all()
+            if not pairs:
+                raise HTTPException(400, f"Dataset {req.seed_dataset_id} has no QA pairs")
+            seed_dir = os.path.join("data", "seed_datasets")
+            os.makedirs(seed_dir, exist_ok=True)
+            seed_dataset_path = os.path.join(seed_dir, f"seed_{ds.id}.jsonl")
+            with open(seed_dataset_path, "w") as f:
+                for qa in pairs:
+                    f.write(json.dumps({
+                        "instruction": qa.instruction,
+                        "output": qa.output,
+                    }) + "\n")
+        finally:
+            db.close()
+
     try:
-        loop_id = start_closed_loop(config_path=req.config_path)
+        loop_id = start_closed_loop(config_path=req.config_path, seed_dataset_path=seed_dataset_path)
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     except (FileNotFoundError, ValueError) as exc:

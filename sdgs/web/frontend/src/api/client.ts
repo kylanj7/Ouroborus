@@ -1060,10 +1060,13 @@ export interface ClosedLoopStatus {
   stop_reason: string | null
 }
 
-export const startClosedLoop = (configPath?: string) =>
+export const startClosedLoop = (configPath?: string, seedDatasetId?: number | null) =>
   request<{ loop_id: string; status: string }>('/closed-loop/start', {
     method: 'POST',
-    body: JSON.stringify({ config_path: configPath || null }),
+    body: JSON.stringify({
+      config_path: configPath || null,
+      seed_dataset_id: seedDatasetId ?? null,
+    }),
   })
 
 export const stopClosedLoop = () =>

@@ -30,7 +30,7 @@ interface LoopState {
 
   fetchStatus: () => Promise<void>
   fetchHistory: () => Promise<void>
-  start: (configPath?: string) => Promise<string | null>
+  start: (configPath?: string, seedDatasetId?: number | null) => Promise<string | null>
   stop: () => Promise<void>
   cancel: () => Promise<void>
   setCurrentStage: (stage: string) => void
@@ -81,10 +81,10 @@ export const useLoopStore = create<LoopState>((set, get) => ({
     }
   },
 
-  start: async (configPath?: string) => {
+  start: async (configPath?: string, seedDatasetId?: number | null) => {
     set({ loading: true, error: null })
     try {
-      const res = await startClosedLoop(configPath)
+      const res = await startClosedLoop(configPath, seedDatasetId)
       const loopId = res.loop_id
       set({ loopId, status: res.status })
       await get().fetchStatus()

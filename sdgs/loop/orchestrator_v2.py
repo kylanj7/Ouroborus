@@ -45,6 +45,7 @@ class ClosedLoopOrchestrator:
         config: ClosedLoopConfig | None = None,
         config_path: str | Path | None = None,
         state_db: str | Path | None = None,
+        seed_dataset_path: str | None = None,
     ):
         if config is not None:
             self._config = config
@@ -67,6 +68,7 @@ class ClosedLoopOrchestrator:
         self._checkpoint_dir: Path = checkpoint_dir
         self._current_version: int = 0
         self._previous_average: float = 0.0
+        self._seed_dataset_path: str | None = seed_dataset_path
         self._consecutive_failures: int = 0
 
     # ------------------------------------------------------------------
@@ -153,59 +155,67 @@ class ClosedLoopOrchestrator:
             cycle_started = datetime.datetime.utcnow().isoformat()
             logger.info("=== Cycle %d / %d ===", cycle, max_cycles)
 
-            # [1] TALLYING
-            self._state.update_stage(loop_id, cycle, Stage.TALLYING)
-            failed_questions = [q for q in per_question if not q.get("passed")]
-            history = self._logger.get_cycle_history()
-            tally_metadata = run_tally(
-                failed_questions,
-                history,
-                model=self._config.tally.model,
-                max_retries=self._config.tally.max_retries,
-                max_tool_calls=self._config.tally.max_tool_calls,
-                timeout_seconds=self._config.tally.timeout_seconds,
-                log_dir=self._config.logging.log_dir,
-                history_window=self._config.tally.history_window,
-            )
-            logger.info("Tally: %d clusters, %d search queries",
-                        len(tally_metadata.get("clusters", [])),
-                        len(tally_metadata.get("search_queries", [])))
+            # Use seed dataset for cycle 1 if provided
+            if cycle == 1 and self._seed_dataset_path:
+                logger.info("Using seed dataset: %s", self._seed_dataset_path)
+                dataset_path = Path(self._seed_dataset_path)
+                tally_metadata = {"seed_dataset": True}
+                accepted_count = sum(1 for _ in open(dataset_path))
+                logger.info("Seed dataset: %d pairs", accepted_count)
+            else:
+                # [1] TALLYING
+                self._state.update_stage(loop_id, cycle, Stage.TALLYING)
+                failed_questions = [q for q in per_question if not q.get("passed")]
+                history = self._logger.get_cycle_history()
+                tally_metadata = run_tally(
+                    failed_questions,
+                    history,
+                    model=self._config.tally.model,
+                    max_retries=self._config.tally.max_retries,
+                    max_tool_calls=self._config.tally.max_tool_calls,
+                    timeout_seconds=self._config.tally.timeout_seconds,
+                    log_dir=self._config.logging.log_dir,
+                    history_window=self._config.tally.history_window,
+                )
+                logger.info("Tally: %d clusters, %d search queries",
+                            len(tally_metadata.get("clusters", [])),
+                            len(tally_metadata.get("search_queries", [])))
 
-            # [2] RETRIEVING
-            self._state.update_stage(loop_id, cycle, Stage.RETRIEVING)
-            papers = retrieve_papers(
-                tally_metadata,
-                sources=self._config.retrieval.sources,
-                max_papers_per_cluster=self._config.retrieval.max_papers_per_cluster,
-            )
-            papers = extract_paper_text(papers)
-            logger.info("Retrieved %d papers", len(papers))
+                # [2] RETRIEVING
+                self._state.update_stage(loop_id, cycle, Stage.RETRIEVING)
+                papers = retrieve_papers(
+                    tally_metadata,
+                    sources=self._config.retrieval.sources,
+                    max_papers_per_cluster=self._config.retrieval.max_papers_per_cluster,
+                )
+                papers = extract_paper_text(papers)
+                logger.info("Retrieved %d papers", len(papers))
 
-            # [3] CURATING
-            self._state.update_stage(loop_id, cycle, Stage.CURATING)
-            verification_cfg = {
-                "citation_matching": self._config.curation.verification.citation_matching,
-                "min_entailment_ratio": self._config.curation.verification.entailment_min_ratio,
-                "chunk_tracing_threshold": self._config.curation.verification.chunk_similarity_threshold,
-                "embedding_model": self._config.curation.verification.embedding_model,
-            }
-            accepted, rejects = generate_pairs(
-                papers,
-                tally_metadata,
-                model=self._config.curation.model,
-                min_pairs=self._config.curation.min_pairs_per_cycle,
-                verification_config=verification_cfg,
-            )
+                # [3] CURATING
+                self._state.update_stage(loop_id, cycle, Stage.CURATING)
+                verification_cfg = {
+                    "citation_matching": self._config.curation.verification.citation_matching,
+                    "min_entailment_ratio": self._config.curation.verification.entailment_min_ratio,
+                    "chunk_tracing_threshold": self._config.curation.verification.chunk_similarity_threshold,
+                    "embedding_model": self._config.curation.verification.embedding_model,
+                }
+                accepted, rejects = generate_pairs(
+                    papers,
+                    tally_metadata,
+                    model=self._config.curation.model,
+                    min_pairs=self._config.curation.min_pairs_per_cycle,
+                    verification_config=verification_cfg,
+                )
 
-            dataset_dir = self._checkpoint_dir / f"cycle-{cycle}"
-            dataset_dir.mkdir(parents=True, exist_ok=True)
-            dataset_path = dataset_dir / "dataset.jsonl"
-            rejects_path = dataset_dir / self._config.curation.verification.rejects_log
-            save_dataset(accepted, dataset_path, rejects, rejects_path)
-            logger.info("Curated %d pairs (%d rejected)", len(accepted), len(rejects))
+                dataset_dir = self._checkpoint_dir / f"cycle-{cycle}"
+                dataset_dir.mkdir(parents=True, exist_ok=True)
+                dataset_path = dataset_dir / "dataset.jsonl"
+                rejects_path = dataset_dir / self._config.curation.verification.rejects_log
+                save_dataset(accepted, dataset_path, rejects, rejects_path)
+                logger.info("Curated %d pairs (%d rejected)", len(accepted), len(rejects))
 
-            # Free curation model VRAM
-            unload_model(self._config.curation.model)
+                # Free curation model VRAM
+                unload_model(self._config.curation.model)
 
             # [4] TRAINING
             self._state.update_stage(loop_id, cycle, Stage.TRAINING)

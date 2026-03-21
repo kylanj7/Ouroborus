@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Play, Square, XCircle, ChevronDown, ChevronUp, Settings } from 'lucide-react'
+import { getDatasets, Dataset } from '../api/client'
 import { useLoopStore } from '../store/loopStore'
 import { useLoopSSE } from '../hooks/useLoopSSE'
 import StagePipeline from '../components/loop/StagePipeline'
@@ -29,10 +30,15 @@ export default function Loop() {
   const [gateThreshold, setGateThreshold] = useState(0.5)
   const [minPairs, setMinPairs] = useState(1000)
   const [tallyModel, setTallyModel] = useState('gpt-oss:120b')
+  const [seedDatasetId, setSeedDatasetId] = useState<number | null>(null)
+  const [datasets, setDatasets] = useState<Dataset[]>([])
 
   useEffect(() => {
     store.fetchStatus()
     store.fetchHistory()
+    getDatasets(1, 100).then((res) => {
+      setDatasets(res.datasets.filter((d) => d.status === 'completed'))
+    }).catch(() => {})
   }, [])
 
   // When SSE signals done, refresh REST data
@@ -133,7 +139,7 @@ export default function Loop() {
 
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button
-            onClick={() => { store.start(configPath); clear() }}
+            onClick={() => { store.start(configPath, seedDatasetId); clear() }}
             disabled={isRunning || store.loading}
             style={btnStyle('start', isRunning || store.loading)}
           >
@@ -242,6 +248,23 @@ export default function Loop() {
               <div>
                 <label style={labelStyle}>Tally Model</label>
                 <input value={tallyModel} onChange={e => setTallyModel(e.target.value)} style={inputStyle} />
+              </div>
+
+              {/* Seed Dataset */}
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label style={labelStyle}>Seed Dataset (optional -- used for cycle 1)</label>
+                <select
+                  value={seedDatasetId ?? ''}
+                  onChange={e => setSeedDatasetId(e.target.value ? Number(e.target.value) : null)}
+                  style={inputStyle}
+                >
+                  <option value="">None -- generate from tally</option>
+                  {datasets.map(d => (
+                    <option key={d.id} value={d.id}>
+                      {d.name || d.topic} ({d.actual_size} QA pairs)
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
       </div>
