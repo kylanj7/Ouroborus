@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Play, Square, XCircle, ChevronDown, ChevronUp, Settings, Upload } from 'lucide-react'
 import InfoTip from '../components/common/InfoTip'
-import { getDatasets, uploadTrainingYaml, Dataset } from '../api/client'
+import { uploadTrainingYaml } from '../api/client'
 import { useLoopStore } from '../store/loopStore'
 import { useLoopSSE } from '../hooks/useLoopSSE'
 import StagePipeline from '../components/loop/StagePipeline'
@@ -30,7 +30,7 @@ export default function Loop() {
   const [targetScore, setTargetScore] = useState(85)
   const [maxCycles, setMaxCycles] = useState(50)
   const [gateThreshold, setGateThreshold] = useState(0.5)
-  const [minPairs, setMinPairs] = useState(1000)
+  const [minPairs, setMinPairs] = useState(3500)
   const [lossFunction, setLossFunction] = useState('focal')
   const [labelSmoothing, setLabelSmoothing] = useState(0.0)
   const [optimizer, setOptimizer] = useState('adamw_8bit')
@@ -50,15 +50,14 @@ export default function Loop() {
   const [maxSteps, setMaxSteps] = useState(-1)
   const [quantType, setQuantType] = useState('nf4')
   const [earlyStoppingPatience, setEarlyStoppingPatience] = useState(3)
-  const [seedDatasetId, setSeedDatasetId] = useState<number | null>(null)
-  const [datasets, setDatasets] = useState<Dataset[]>([])
-
   useEffect(() => {
     store.fetchStatus()
     store.fetchHistory()
-    getDatasets(1, 100).then((res) => {
-      setDatasets(res.datasets.filter((d) => d.status === 'completed'))
-    }).catch(() => {})
+    // Poll status every 5s so UI stays in sync with backend
+    const interval = setInterval(() => {
+      store.fetchStatus()
+    }, 5000)
+    return () => clearInterval(interval)
   }, [])
 
   // When SSE signals done, refresh REST data
@@ -77,7 +76,7 @@ export default function Loop() {
   }, [logs.length, showLogs])
 
   const isRunning = store.status === 'running'
-  const canStart = !isRunning && !store.loading && seedDatasetId !== null
+  const canStart = !isRunning && !store.loading
 
   const generateYaml = () => {
     // Format learning rate as scientific notation if small
@@ -142,7 +141,7 @@ tally:
   const baseVersion = store.cycles.filter(c => (c as any).gate_passed === true).length
 
   return (
-    <div style={{ padding: '32px', display: 'flex', gap: 20, alignItems: 'flex-start' }}>
+    <div style={{ padding: '32px', maxWidth: 1200 }}>
       {/* Pulse animation for status badge */}
       <style>{`
         @keyframes statusPulse {
@@ -154,9 +153,6 @@ tally:
 
       {/* GateBanner -- floating overlay */}
       <GateBanner data={store.gateBanner} onDismiss={store.dismissGateBanner} />
-
-      {/* Left column: main content */}
-      <div style={{ flex: 1, minWidth: 0, maxWidth: 900 }}>
 
       {/* Header + Controls Bar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
@@ -223,7 +219,7 @@ tally:
 
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button
-            onClick={() => { store.start(configPath, seedDatasetId); clear() }}
+            onClick={() => { store.start(configPath); clear() }}
             disabled={!canStart}
             style={btnStyle('start', !canStart)}
           >
@@ -608,21 +604,6 @@ tally:
                 <input type="number" min="1" value={evalSteps} onChange={e => setEvalSteps(Number(e.target.value))} />
               </div>
 
-              {/* Seed Dataset */}
-              <div style={{ gridColumn: '1 / -1' }}>
-                <label>Seed Dataset<InfoTip text="Initial dataset to train on in cycle 0. Subsequent cycles add curated data from retrieved papers." /></label>
-                <select
-                  value={seedDatasetId ?? ''}
-                  onChange={e => setSeedDatasetId(e.target.value ? Number(e.target.value) : null)}
-                >
-                  <option value="">Select a dataset...</option>
-                  {datasets.map(d => (
-                    <option key={d.id} value={d.id}>
-                      {d.name || d.topic} ({d.actual_size} QA pairs)
-                    </option>
-                  ))}
-                </select>
-              </div>
             </div>
 
         {/* Generate YAML */}
@@ -717,15 +698,9 @@ tally:
         <CycleHistory cycles={store.cycles} />
       </div>
 
-      </div>{/* end left column */}
-
-      {/* Right column: live logs panel */}
+      {/* Live Logs -- below config panel */}
       <div style={{
-        width: 380,
-        flexShrink: 0,
-        position: 'sticky',
-        top: 32,
-        alignSelf: 'flex-start',
+        marginTop: 16,
         background: 'rgba(8, 12, 24, 0.85)',
         backdropFilter: 'blur(16px)',
         border: '1px solid var(--border-subtle)',
@@ -742,7 +717,6 @@ tally:
           borderBottom: '1px solid var(--border-subtle)',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {/* Terminal dots */}
             <div style={{ display: 'flex', gap: 6 }}>
               <span style={{ width: 10, height: 10, borderRadius: '50%', background: isRunning ? '#EF4444' : '#3B3B3B' }} />
               <span style={{ width: 10, height: 10, borderRadius: '50%', background: isRunning ? '#EAB308' : '#3B3B3B' }} />
@@ -788,15 +762,15 @@ tally:
           lineHeight: 1.7,
           background: 'rgba(2, 4, 12, 0.6)',
           padding: '12px 14px',
-          height: 'calc(100vh - 140px)',
+          maxHeight: 400,
           overflowY: 'auto',
           color: '#8A9AB5',
           scrollbarWidth: 'thin',
           scrollbarColor: 'rgba(255,255,255,0.1) transparent',
         }}>
           {logs.length === 0 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 12 }}>
-              <span style={{ fontSize: 24, opacity: 0.2 }}>{'>'}_</span>
+            <div style={{ padding: '24px 0', textAlign: 'center' }}>
+              <div style={{ fontSize: 20, opacity: 0.2, marginBottom: 8 }}>{'>'}_</div>
               <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>Waiting for output...</span>
             </div>
           ) : (
