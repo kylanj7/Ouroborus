@@ -20,7 +20,7 @@ export default function Loop() {
   const [baseModel, setBaseModel] = useState('Qwen/Qwen3.5-9B')
   const [learningRate, setLearningRate] = useState('1e-5')
   const [numEpochs, setNumEpochs] = useState(3)
-  const [batchSize, setBatchSize] = useState(4)
+  const [batchSize, setBatchSize] = useState(32)
   const [gradAccumSteps, setGradAccumSteps] = useState(4)
   const [maxSeqLength, setMaxSeqLength] = useState(2048)
   const [loraRank, setLoraRank] = useState(64)

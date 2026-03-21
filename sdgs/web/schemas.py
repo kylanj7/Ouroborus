@@ -276,7 +276,7 @@ class StartTrainingRequest(BaseModel):
     lora_alpha: int = 128
     learning_rate: float = 1e-5
     num_epochs: int = 3
-    batch_size: int = 4
+    batch_size: int = 32
     gradient_accumulation_steps: int = 4
     max_steps: int = -1
     # Config-driven mode: specify YAML config names instead of individual params
@@ -297,7 +297,7 @@ class TrainingRunResponse(BaseModel):
     lora_alpha: int = 128
     learning_rate: float = 1e-5
     num_epochs: int = 3
-    batch_size: int = 4
+    batch_size: int = 32
     gradient_accumulation_steps: int = 4
     max_steps: int = -1
     dataset_path: str | None = None
