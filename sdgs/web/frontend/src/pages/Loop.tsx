@@ -680,27 +680,9 @@ tally:
         </div>
       )}
 
-      {/* StagePipeline */}
-      <StagePipeline currentStage={store.currentStage} currentCycle={store.currentCycle} />
-
-      {/* BenchmarkChart */}
-      <div className="card" style={{ marginTop: 16 }}>
-        <BenchmarkChart cycles={store.cycles} targetScore={85} />
-      </div>
-
-      {/* TallyDiagnosis */}
-      <div className="card" style={{ marginTop: 16 }}>
-        <TallyDiagnosis tallyResult={store.tallyResult} cycle={store.currentCycle} />
-      </div>
-
-      {/* CycleHistory */}
-      <div className="card" style={{ marginTop: 16 }}>
-        <CycleHistory cycles={store.cycles} />
-      </div>
-
-      {/* Live Logs -- below config panel */}
+      {/* Live Logs -- below training params, above chart */}
       <div style={{
-        marginTop: 16,
+        marginTop: 16, marginBottom: 16,
         background: 'rgba(8, 12, 24, 0.85)',
         backdropFilter: 'blur(16px)',
         border: '1px solid var(--border-subtle)',
@@ -793,6 +775,24 @@ tally:
           )}
           <div ref={logEndRef} />
         </div>
+      </div>
+
+      {/* StagePipeline */}
+      <StagePipeline currentStage={store.currentStage} currentCycle={store.currentCycle} />
+
+      {/* BenchmarkChart */}
+      <div className="card" style={{ marginTop: 16 }}>
+        <BenchmarkChart cycles={store.cycles} targetScore={85} />
+      </div>
+
+      {/* TallyDiagnosis */}
+      <div className="card" style={{ marginTop: 16 }}>
+        <TallyDiagnosis tallyResult={store.tallyResult} cycle={store.currentCycle} />
+      </div>
+
+      {/* CycleHistory */}
+      <div className="card" style={{ marginTop: 16 }}>
+        <CycleHistory cycles={store.cycles} />
       </div>
     </div>
   )
