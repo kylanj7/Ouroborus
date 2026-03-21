@@ -7,8 +7,8 @@ import DatasetDetailPanel from '../components/galaxy/DatasetDetail'
 
 export default function Galaxy() {
   const {
-    data, selectedNode, loading, error, searchQuery, activeCluster,
-    fetchData, selectNode, clearSelection, setSearchQuery, setActiveCluster,
+    data, selectedNode, loading, error, searchQuery, activeFilter,
+    fetchData, selectNode, clearSelection, setSearchQuery, setActiveFilter,
   } = useGalaxyStore()
 
   useEffect(() => {
@@ -22,16 +22,16 @@ export default function Galaxy() {
     let allNodes = [...data.nodes]
     let allLinks = [...data.links]
 
-    // Filter by cluster
-    if (activeCluster !== null) {
-      const clusterNodeIds = new Set(
-        allNodes.filter(n => n.cluster === activeCluster).map(n => n.id)
+    // Filter by node type
+    if (activeFilter !== null) {
+      const filteredNodeIds = new Set(
+        allNodes.filter(n => n.type === activeFilter || n.type === 'dataset').map(n => n.id)
       )
-      allNodes = allNodes.filter(n => clusterNodeIds.has(n.id))
+      allNodes = allNodes.filter(n => filteredNodeIds.has(n.id))
       allLinks = allLinks.filter(l => {
         const src = typeof l.source === 'string' ? l.source : (l.source as any).id
         const tgt = typeof l.target === 'string' ? l.target : (l.target as any).id
-        return clusterNodeIds.has(src) && clusterNodeIds.has(tgt)
+        return filteredNodeIds.has(src) && filteredNodeIds.has(tgt)
       })
     }
 
@@ -63,7 +63,7 @@ export default function Galaxy() {
     const sLinks = allLinks.filter(l => l.type !== 'paper_qa' && l.type !== 'dataset_qa')
 
     return { simNodes: sNodes, simLinks: sLinks, qaNodes: qNodes, qaParentMap: parentMap }
-  }, [data, searchQuery, activeCluster])
+  }, [data, searchQuery, activeFilter])
 
   // Papers in the selected dataset's cluster (for dataset detail panel)
   const datasetPapers = useMemo(() => {
@@ -103,9 +103,10 @@ export default function Galaxy() {
         <GalaxyControls
           searchQuery={searchQuery}
           onSearch={setSearchQuery}
-          clusters={data?.clusters || []}
-          activeCluster={activeCluster}
-          onToggleCluster={setActiveCluster}
+          paperCount={simNodes.filter(n => n.type === 'paper').length}
+          qaCount={qaNodes.length}
+          activeFilter={activeFilter}
+          onToggleFilter={setActiveFilter}
         />
       </div>
 

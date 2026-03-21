@@ -7,19 +7,21 @@ interface SelectedNode {
   detail?: PaperDetail | null
 }
 
+type ActiveFilter = 'paper' | 'qa' | null
+
 interface GalaxyStore {
   data: GalaxyData | null
   selectedNode: SelectedNode | null
   loading: boolean
   error: string | null
   searchQuery: string
-  activeCluster: number | null
+  activeFilter: ActiveFilter
 
   fetchData: () => Promise<void>
   selectNode: (node: GalaxyNode) => Promise<void>
   clearSelection: () => void
   setSearchQuery: (q: string) => void
-  setActiveCluster: (id: number | null) => void
+  setActiveFilter: (f: ActiveFilter) => void
 }
 
 export const useGalaxyStore = create<GalaxyStore>((set, get) => ({
@@ -28,7 +30,7 @@ export const useGalaxyStore = create<GalaxyStore>((set, get) => ({
   loading: false,
   error: null,
   searchQuery: '',
-  activeCluster: null,
+  activeFilter: null,
 
   fetchData: async () => {
     set({ loading: true, error: null })
@@ -45,7 +47,7 @@ export const useGalaxyStore = create<GalaxyStore>((set, get) => ({
 
     // Click same node again -> deselect
     if (get().selectedNode?.node.id === node.id) {
-      set({ selectedNode: null, activeCluster: null })
+      set({ selectedNode: null })
       return
     }
 
@@ -59,13 +61,13 @@ export const useGalaxyStore = create<GalaxyStore>((set, get) => ({
         set({ error: String(e) })
       }
     } else if (type === 'dataset') {
-      set({ selectedNode: { type, node }, activeCluster: node.cluster })
+      set({ selectedNode: { type, node } })
     } else {
       set({ selectedNode: { type, node } })
     }
   },
 
-  clearSelection: () => set({ selectedNode: null, activeCluster: null }),
+  clearSelection: () => set({ selectedNode: null }),
   setSearchQuery: (q) => set({ searchQuery: q }),
-  setActiveCluster: (id) => set({ activeCluster: id }),
+  setActiveFilter: (f) => set({ activeFilter: f }),
 }))
