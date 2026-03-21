@@ -1,5 +1,4 @@
 # Ouroborus
-![0b5de2bd-29f1-4bab-ab10-0b41232591a5](https://github.com/user-attachments/assets/7a25d8dc-db1a-4a31-8240-b54113216ad7)
 
 Full-stack platform for synthetic dataset generation, model fine-tuning, evaluation, and autonomous self-improvement loops. Generate reasoning datasets from scholarly papers, fine-tune models with LoRA, evaluate against public benchmarks, and let the closed loop diagnose weaknesses, retrieve papers, curate targeted training data, and improve the model iteratively.
 
