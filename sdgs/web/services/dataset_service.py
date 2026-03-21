@@ -548,11 +548,24 @@ def import_from_huggingface(
             if not instruction.strip():
                 continue
 
+            # Map validity/healed from HF columns if present
+            is_valid = True
+            was_healed = False
+            if "is_valid" in columns:
+                is_valid = bool(row.get("is_valid", True))
+            elif "valid" in columns:
+                is_valid = bool(row.get("valid", True))
+            if "was_healed" in columns:
+                was_healed = bool(row.get("was_healed", False))
+            elif "healed" in columns:
+                was_healed = bool(row.get("healed", False))
+
             entry = {
                 "instruction": instruction,
                 "output": output_text,
                 "source": f"huggingface:{repo_id}",
-                "is_valid": True,
+                "is_valid": is_valid,
+                "was_healed": was_healed,
             }
             f.write(json.dumps(entry) + "\n")
             count += 1
