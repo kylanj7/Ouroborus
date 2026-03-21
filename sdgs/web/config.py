@@ -3,6 +3,16 @@ import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
+
+# Load .env file if it exists (for WANDB_API_KEY, HF_TOKEN, etc.)
+_env_file = BASE_DIR / ".env"
+if _env_file.is_file():
+    with open(_env_file) as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, _, value = line.partition("=")
+                os.environ.setdefault(key.strip(), value.strip())
 DATA_DIR = BASE_DIR / "data"
 CONFIGS_DIR = BASE_DIR / "configs"
 

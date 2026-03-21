@@ -643,6 +643,7 @@ class QwenTrainer:
             model_size=self.model_config.get("size", "").lower(),
         )
         os.environ["WANDB_PROJECT"] = project
+        os.environ.setdefault("WANDB_LOG_MODEL", "false")
         return "wandb"
 
     # ------------------------------------------------------------------

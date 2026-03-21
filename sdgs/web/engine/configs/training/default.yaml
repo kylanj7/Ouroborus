@@ -43,6 +43,7 @@ push_to_hub: false
 # Reproducibility
 seed: 3407
 
-# WandB project naming template
+# WandB integration
+wandb_enabled: true
 # Available placeholders: {model_name}, {dataset_name}, {model_size}
 wandb_project_template: "{dataset_name}-{model_name}"
