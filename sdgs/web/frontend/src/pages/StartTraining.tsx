@@ -61,7 +61,7 @@ export default function StartTraining() {
   const { logs, status, done } = useTrainingSSE(runId)
 
   useEffect(() => {
-    getDatasets(1).then((res) => {
+    getDatasets(1, 100).then((res) => {
       setDatasets(res.datasets.filter((d) => d.status === 'completed'))
     }).catch(() => {})
     getArtifacts().then((res) => setCheckpoints(res.checkpoints)).catch(() => {})

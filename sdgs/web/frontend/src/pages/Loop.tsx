@@ -12,7 +12,6 @@ export default function Loop() {
   const store = useLoopStore()
   const { logs, done, clear } = useLoopSSE()
   const [showLogs, setShowLogs] = useState(false)
-  const [showConfig, setShowConfig] = useState(false)
   const logEndRef = useRef<HTMLDivElement>(null)
 
   // Config form state
@@ -162,20 +161,14 @@ export default function Loop() {
         </div>
       </div>
 
-      {/* Config Panel -- collapsible */}
-      {!isRunning && (
-        <div style={{ ...glassCard, marginBottom: 16 }}>
-          <button
-            onClick={() => setShowConfig(v => !v)}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600, padding: 0 }}
-          >
-            <Settings size={16} />
-            {showConfig ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-            Training Configuration
-          </button>
+      {/* Config Panel */}
+      <div style={{ ...glassCard, marginBottom: 16 }}>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600, marginBottom: 16 }}>
+          <Settings size={16} />
+          Training Configuration
+        </div>
 
-          {showConfig && (
-            <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
               {/* Config Preset */}
               <div style={{ gridColumn: '1 / -1' }}>
                 <label style={labelStyle}>Config File</label>
@@ -251,9 +244,7 @@ export default function Loop() {
                 <input value={tallyModel} onChange={e => setTallyModel(e.target.value)} style={inputStyle} />
               </div>
             </div>
-          )}
-        </div>
-      )}
+      </div>
 
       {/* Error display */}
       {store.error && (

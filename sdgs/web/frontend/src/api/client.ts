@@ -111,8 +111,8 @@ export const createDataset = (data: CreateDatasetRequest) =>
 export const createBatchDatasets = (datasets: CreateDatasetRequest[]) =>
   request<Dataset[]>('/datasets/batch', { method: 'POST', body: JSON.stringify({ datasets }) })
 
-export const getDatasets = (page = 1) =>
-  request<DatasetListResponse>(`/datasets?page=${page}`)
+export const getDatasets = (page = 1, perPage = 20) =>
+  request<DatasetListResponse>(`/datasets?page=${page}&per_page=${perPage}`)
 
 export interface AggregateStats {
   dataset_count: number
