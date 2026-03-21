@@ -22,6 +22,7 @@ export default function Loop() {
   const [numEpochs, setNumEpochs] = useState(3)
   const [batchSize, setBatchSize] = useState(4)
   const [gradAccumSteps, setGradAccumSteps] = useState(4)
+  const [maxSeqLength, setMaxSeqLength] = useState(2048)
   const [loraRank, setLoraRank] = useState(64)
   const [loraAlpha, setLoraAlpha] = useState(128)
   const [targetScore, setTargetScore] = useState(85)
@@ -188,6 +189,18 @@ export default function Loop() {
               <div>
                 <label style={labelStyle}>Base Model</label>
                 <input value={baseModel} onChange={e => setBaseModel(e.target.value)} style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>Context Length</label>
+                <select value={maxSeqLength} onChange={e => setMaxSeqLength(Number(e.target.value))} style={inputStyle}>
+                  <option value={512}>512</option>
+                  <option value={1024}>1024</option>
+                  <option value={2048}>2048</option>
+                  <option value={4096}>4096</option>
+                  <option value={8192}>8192</option>
+                  <option value={16384}>16384</option>
+                  <option value={32768}>32768</option>
+                </select>
               </div>
               <div>
                 <label style={labelStyle}>LoRA Rank</label>

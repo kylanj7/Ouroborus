@@ -35,6 +35,9 @@ export default function StartTraining() {
   const [downloadPercent, setDownloadPercent] = useState(-1)
   const [modelSize, setModelSize] = useState('9B')
 
+  // Context length
+  const [maxSeqLength, setMaxSeqLength] = useState(2048)
+
   // LoRA config
   const [loraRank, setLoraRank] = useState(64)
   const [loraAlpha, setLoraAlpha] = useState(128)
@@ -124,6 +127,7 @@ export default function StartTraining() {
             dataset_path: datasetSource === 'path' ? datasetPath.trim() || undefined : undefined,
             base_model: modelSource === 'huggingface' && hfModelId.trim() ? hfModelId.trim() : baseModel,
             model_size: modelSize,
+            max_seq_length: maxSeqLength,
             lora_rank: loraRank,
             lora_alpha: loraAlpha,
             learning_rate: learningRate,
@@ -477,8 +481,24 @@ export default function StartTraining() {
           )}
         </div>
 
-        {/* LoRA config */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
+        {/* Context length + LoRA config */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '20px' }}>
+          <div>
+            <label>Context Length</label>
+            <select
+              value={maxSeqLength}
+              onChange={(e) => setMaxSeqLength(parseInt(e.target.value))}
+              disabled={submitting}
+            >
+              <option value={512}>512</option>
+              <option value={1024}>1024</option>
+              <option value={2048}>2048</option>
+              <option value={4096}>4096</option>
+              <option value={8192}>8192</option>
+              <option value={16384}>16384</option>
+              <option value={32768}>32768</option>
+            </select>
+          </div>
           <div>
             <label>LoRA Rank</label>
             <input

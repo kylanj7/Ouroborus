@@ -565,6 +565,7 @@ export interface StartTrainingRequest {
   dataset_path?: string | null
   base_model?: string
   model_size?: string
+  max_seq_length?: number
   lora_rank?: number
   lora_alpha?: number
   learning_rate?: number

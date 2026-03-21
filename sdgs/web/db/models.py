@@ -146,6 +146,7 @@ class TrainingRun(Base):
     # Model config
     base_model = Column(String(300), nullable=True)
     model_size = Column(String(50), nullable=True)
+    max_seq_length = Column(Integer, default=2048)
     lora_rank = Column(Integer, default=64)
     lora_alpha = Column(Integer, default=128)
 

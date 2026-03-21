@@ -51,6 +51,12 @@ def _migrate(eng):
             with eng.begin() as conn:
                 conn.execute(text("ALTER TABLE users ADD COLUMN core_token TEXT"))
 
+    if insp.has_table("training_runs"):
+        columns = {c["name"] for c in insp.get_columns("training_runs")}
+        if "max_seq_length" not in columns:
+            with eng.begin() as conn:
+                conn.execute(text("ALTER TABLE training_runs ADD COLUMN max_seq_length INTEGER DEFAULT 2048"))
+
     # Performance indexes (idempotent -- safe for existing and new databases)
     with eng.begin() as conn:
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_papers_topic ON papers (topic)"))

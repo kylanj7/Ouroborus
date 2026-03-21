@@ -270,7 +270,8 @@ class StartTrainingRequest(BaseModel):
     dataset_id: int | None = None
     dataset_path: str | None = None
     base_model: str = "Qwen/Qwen3.5-9B"
-    model_size: str = "14B"
+    model_size: str = "9B"
+    max_seq_length: int = 2048
     lora_rank: int = 64
     lora_alpha: int = 128
     learning_rate: float = 1e-5

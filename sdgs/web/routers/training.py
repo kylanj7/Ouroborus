@@ -442,6 +442,7 @@ def start_training(
         status="pending",
         base_model=req.base_model,
         model_size=req.model_size,
+        max_seq_length=req.max_seq_length,
         lora_rank=req.lora_rank,
         lora_alpha=req.lora_alpha,
         learning_rate=req.learning_rate,
@@ -459,6 +460,7 @@ def start_training(
     model_config = yaml_model_config or {
         "model_name": req.base_model,
         "size": req.model_size,
+        "max_seq_length": req.max_seq_length,
         "lora": {"r": req.lora_rank, "lora_alpha": req.lora_alpha},
     }
     training_config = yaml_training_config or {
@@ -595,6 +597,7 @@ def retry_training_run(
     model_config = {
         "model_name": run.base_model,
         "size": run.model_size,
+        "max_seq_length": run.max_seq_length or 2048,
         "lora": {"r": run.lora_rank, "lora_alpha": run.lora_alpha},
     }
     training_config = {
