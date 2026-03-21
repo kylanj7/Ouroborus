@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { Play, Square, XCircle, ChevronDown, ChevronUp, Settings } from 'lucide-react'
-import { getDatasets, Dataset } from '../api/client'
+import { Play, Square, XCircle, ChevronDown, ChevronUp, Settings, Upload } from 'lucide-react'
+import { getDatasets, uploadTrainingYaml, Dataset } from '../api/client'
 import { useLoopStore } from '../store/loopStore'
 import { useLoopSSE } from '../hooks/useLoopSSE'
 import StagePipeline from '../components/loop/StagePipeline'
@@ -175,9 +175,48 @@ export default function Loop() {
 
       {/* Config Panel */}
       <div style={{ ...glassCard, marginBottom: 16 }}>
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600, marginBottom: 16 }}>
-          <Settings size={16} />
-          Training Configuration
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600 }}>
+            <Settings size={16} />
+            Training Configuration
+          </div>
+          <label style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            fontSize: 12, color: 'var(--accent-purple)', cursor: 'pointer',
+            padding: '4px 12px', borderRadius: 8,
+            background: 'rgba(139, 92, 246, 0.1)',
+            border: '1px solid rgba(139, 92, 246, 0.2)',
+            margin: 0, textTransform: 'none', letterSpacing: 'normal', fontWeight: 500,
+          }}>
+            <Upload size={13} />
+            Load YAML
+            <input
+              type="file"
+              accept=".yaml,.yml"
+              style={{ display: 'none' }}
+              onChange={async (e) => {
+                const file = e.target.files?.[0]
+                if (!file) return
+                try {
+                  const result = await uploadTrainingYaml(file)
+                  const cfg = result.data
+                  if (cfg.learning_rate != null) setLearningRate(String(cfg.learning_rate))
+                  if (cfg.num_train_epochs != null) setNumEpochs(cfg.num_train_epochs)
+                  if (cfg.per_device_train_batch_size != null) setBatchSize(cfg.per_device_train_batch_size)
+                  if (cfg.gradient_accumulation_steps != null) setGradAccumSteps(cfg.gradient_accumulation_steps)
+                  if (cfg.optim) setOptimizer(cfg.optim)
+                  if (cfg.lr_scheduler_type) setLrScheduler(cfg.lr_scheduler_type)
+                  if (cfg.weight_decay != null) setWeightDecay(cfg.weight_decay)
+                  if (cfg.max_grad_norm != null) setMaxGradNorm(cfg.max_grad_norm)
+                  if (cfg.loss_function) setLossFunction(cfg.loss_function)
+                  if (cfg.label_smoothing_factor != null) setLabelSmoothing(cfg.label_smoothing_factor)
+                } catch (err: any) {
+                  // show error via store
+                }
+                e.target.value = ''
+              }}
+            />
+          </label>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
