@@ -94,9 +94,12 @@ async def start_loop(
             ds = db.query(Dataset).filter(Dataset.id == req.seed_dataset_id).first()
             if not ds:
                 raise HTTPException(400, f"Dataset {req.seed_dataset_id} not found")
-            pairs = db.query(QAPair).filter(QAPair.dataset_id == ds.id).all()
+            pairs = db.query(QAPair).filter(
+                QAPair.dataset_id == ds.id,
+                QAPair.is_valid == True,
+            ).all()
             if not pairs:
-                raise HTTPException(400, f"Dataset {req.seed_dataset_id} has no QA pairs")
+                raise HTTPException(400, f"Dataset {req.seed_dataset_id} has no valid QA pairs")
             seed_dir = os.path.join("data", "seed_datasets")
             os.makedirs(seed_dir, exist_ok=True)
             seed_dataset_path = os.path.join(seed_dir, f"seed_{ds.id}.jsonl")
