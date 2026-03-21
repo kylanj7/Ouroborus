@@ -271,7 +271,7 @@ class StartTrainingRequest(BaseModel):
     dataset_path: str | None = None
     base_model: str = "Qwen/Qwen3.5-9B"
     model_size: str = "9B"
-    max_seq_length: int = 2048
+    max_seq_length: int = 8192
     lora_rank: int = 64
     lora_alpha: int = 128
     learning_rate: float = 1e-5
@@ -279,11 +279,11 @@ class StartTrainingRequest(BaseModel):
     batch_size: int = 32
     gradient_accumulation_steps: int = 4
     max_steps: int = -1
-    loss_function: str = "cross_entropy"
+    loss_function: str = "focal"
     label_smoothing: float = 0.0
     optimizer: str = "adamw_8bit"
     lr_scheduler: str = "cosine"
-    weight_decay: float = 0.1
+    weight_decay: float = 0.01
     warmup_steps: int = 100
     max_grad_norm: float = 0.3
     # Config-driven mode: specify YAML config names instead of individual params

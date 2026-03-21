@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ChevronDown, ChevronRight, StopCircle, Upload, Settings } from 'lucide-react'
+import InfoTip from '../components/common/InfoTip'
 import { getDatasets, startTraining, cancelTraining, getConfigs, getArtifacts, getBaseModels, downloadBaseModel, importFromHuggingFace, uploadTrainingYaml, Dataset, ConfigInfo, ArtifactEntry } from '../api/client'
 import { useTrainingSSE } from '../hooks/useTrainingSSE'
 
@@ -36,7 +37,7 @@ export default function StartTraining() {
   const [modelSize, setModelSize] = useState('9B')
 
   // Context length
-  const [maxSeqLength, setMaxSeqLength] = useState(2048)
+  const [maxSeqLength, setMaxSeqLength] = useState(8192)
 
   // LoRA config
   const [loraRank, setLoraRank] = useState(64)
@@ -49,11 +50,11 @@ export default function StartTraining() {
   const [batchSize, setBatchSize] = useState(32)
   const [gradAccumSteps, setGradAccumSteps] = useState(4)
   const [maxSteps, setMaxSteps] = useState(-1)
-  const [lossFunction, setLossFunction] = useState('cross_entropy')
+  const [lossFunction, setLossFunction] = useState('focal')
   const [labelSmoothing, setLabelSmoothing] = useState(0.0)
   const [optimizer, setOptimizer] = useState('adamw_8bit')
   const [lrScheduler, setLrScheduler] = useState('cosine')
-  const [weightDecay, setWeightDecay] = useState(0.1)
+  const [weightDecay, setWeightDecay] = useState(0.01)
   const [warmupSteps, setWarmupSteps] = useState(100)
   const [maxGradNorm, setMaxGradNorm] = useState(0.3)
   const [checkpoints, setCheckpoints] = useState<ArtifactEntry[]>([])
@@ -498,7 +499,7 @@ export default function StartTraining() {
         {/* Context length + LoRA config */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '20px' }}>
           <div>
-            <label>Context Length</label>
+            <label>Context Length<InfoTip text="Max token sequence length per training sample. Longer = more context but more VRAM." /></label>
             <select
               value={maxSeqLength}
               onChange={(e) => setMaxSeqLength(parseInt(e.target.value))}
@@ -514,7 +515,7 @@ export default function StartTraining() {
             </select>
           </div>
           <div>
-            <label>LoRA Rank</label>
+            <label>LoRA Rank<InfoTip text="Rank of the low-rank adaptation matrices. Higher = more trainable params and expressiveness." /></label>
             <input
               type="number"
               value={loraRank}
@@ -524,7 +525,7 @@ export default function StartTraining() {
             />
           </div>
           <div>
-            <label>LoRA Alpha</label>
+            <label>LoRA Alpha<InfoTip text="Scaling factor for LoRA updates. Typically set to 2x the rank. Controls update magnitude." /></label>
             <input
               type="number"
               value={loraAlpha}
@@ -589,31 +590,31 @@ export default function StartTraining() {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
             <div>
-              <label>Learning Rate</label>
+              <label>Learning Rate<InfoTip text="Step size for weight updates. Too high = instability, too low = slow convergence." /></label>
               <input type="number" value={learningRate} onChange={(e) => setLearningRate(parseFloat(e.target.value) || 0.00005)} step={0.00001} disabled={submitting} />
             </div>
             <div>
-              <label>Epochs</label>
+              <label>Epochs<InfoTip text="Number of full passes over the training dataset." /></label>
               <input type="number" value={numEpochs} onChange={(e) => setNumEpochs(Math.max(1, parseInt(e.target.value) || 1))} min={1} disabled={submitting} />
             </div>
             <div>
-              <label>Batch Size</label>
+              <label>Batch Size<InfoTip text="Samples processed per GPU per step. Larger = smoother gradients but more VRAM." /></label>
               <input type="number" value={batchSize} onChange={(e) => setBatchSize(Math.max(1, parseInt(e.target.value) || 1))} min={1} disabled={submitting} />
             </div>
             <div>
-              <label>Grad Accumulation</label>
+              <label>Grad Accumulation<InfoTip text="Accumulate gradients over N steps before updating. Effective batch = batch_size x this value." /></label>
               <input type="number" value={gradAccumSteps} onChange={(e) => setGradAccumSteps(Math.max(1, parseInt(e.target.value) || 1))} min={1} disabled={submitting} />
             </div>
             <div>
-              <label>Max Steps (-1 unlimited)</label>
+              <label>Max Steps<InfoTip text="Hard cap on training steps. Set to -1 to use epochs instead." /></label>
               <input type="number" value={maxSteps} onChange={(e) => setMaxSteps(parseInt(e.target.value) || -1)} disabled={submitting} />
             </div>
             <div>
-              <label>Warmup Steps</label>
+              <label>Warmup Steps<InfoTip text="Gradually ramp learning rate from 0 over this many steps. Prevents early instability." /></label>
               <input type="number" min="0" value={warmupSteps} onChange={(e) => setWarmupSteps(parseInt(e.target.value) || 0)} disabled={submitting} />
             </div>
             <div>
-              <label>Optimizer</label>
+              <label>Optimizer<InfoTip text="Algorithm for updating weights. adamw_8bit saves VRAM via quantized optimizer states." /></label>
               <select value={optimizer} onChange={(e) => setOptimizer(e.target.value)} disabled={submitting}>
                 <optgroup label="AdamW">
                   <option value="adamw_torch">adamw_torch</option>
@@ -670,7 +671,7 @@ export default function StartTraining() {
               </select>
             </div>
             <div>
-              <label>LR Scheduler</label>
+              <label>LR Scheduler<InfoTip text="Controls how learning rate changes over training. Cosine decays smoothly to zero." /></label>
               <select value={lrScheduler} onChange={(e) => setLrScheduler(e.target.value)} disabled={submitting}>
                 <option value="cosine">Cosine</option>
                 <option value="linear">Linear</option>
@@ -683,7 +684,7 @@ export default function StartTraining() {
               </select>
             </div>
             <div>
-              <label>Loss Function</label>
+              <label>Loss Function<InfoTip text="Objective function for training. Focal loss down-weights easy samples to focus on hard examples." /></label>
               <select value={lossFunction} onChange={(e) => setLossFunction(e.target.value)} disabled={submitting}>
                 <option value="cross_entropy">CrossEntropyLoss</option>
                 <option value="nll">NLLLoss</option>
@@ -707,15 +708,15 @@ export default function StartTraining() {
               </select>
             </div>
             <div>
-              <label>Label Smoothing</label>
+              <label>Label Smoothing<InfoTip text="Softens target distribution by mixing in uniform probability. Reduces overconfidence." /></label>
               <input type="number" step="0.01" min="0" max="0.5" value={labelSmoothing} onChange={(e) => setLabelSmoothing(parseFloat(e.target.value) || 0)} disabled={submitting} />
             </div>
             <div>
-              <label>Weight Decay</label>
+              <label>Weight Decay<InfoTip text="L2 regularization penalty. Prevents large weights and reduces overfitting." /></label>
               <input type="number" step="0.01" min="0" max="1" value={weightDecay} onChange={(e) => setWeightDecay(parseFloat(e.target.value) || 0)} disabled={submitting} />
             </div>
             <div>
-              <label>Max Grad Norm</label>
+              <label>Max Grad Norm<InfoTip text="Clips gradients to this max norm. Prevents exploding gradients during training." /></label>
               <input type="number" step="0.1" min="0" value={maxGradNorm} onChange={(e) => setMaxGradNorm(parseFloat(e.target.value) || 0)} disabled={submitting} />
             </div>
           </div>

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Play, Square, XCircle, ChevronDown, ChevronUp, Settings, Upload } from 'lucide-react'
+import InfoTip from '../components/common/InfoTip'
 import { getDatasets, uploadTrainingYaml, Dataset } from '../api/client'
 import { useLoopStore } from '../store/loopStore'
 import { useLoopSSE } from '../hooks/useLoopSSE'
@@ -23,18 +24,18 @@ export default function Loop() {
   const [numEpochs, setNumEpochs] = useState(3)
   const [batchSize, setBatchSize] = useState(32)
   const [gradAccumSteps, setGradAccumSteps] = useState(4)
-  const [maxSeqLength, setMaxSeqLength] = useState(2048)
+  const [maxSeqLength, setMaxSeqLength] = useState(8192)
   const [loraRank, setLoraRank] = useState(64)
   const [loraAlpha, setLoraAlpha] = useState(128)
   const [targetScore, setTargetScore] = useState(85)
   const [maxCycles, setMaxCycles] = useState(50)
   const [gateThreshold, setGateThreshold] = useState(0.5)
   const [minPairs, setMinPairs] = useState(1000)
-  const [lossFunction, setLossFunction] = useState('cross_entropy')
+  const [lossFunction, setLossFunction] = useState('focal')
   const [labelSmoothing, setLabelSmoothing] = useState(0.0)
   const [optimizer, setOptimizer] = useState('adamw_8bit')
   const [lrScheduler, setLrScheduler] = useState('cosine')
-  const [weightDecay, setWeightDecay] = useState(0.1)
+  const [weightDecay, setWeightDecay] = useState(0.01)
   const [warmupSteps, setWarmupSteps] = useState(100)
   const [maxGradNorm, setMaxGradNorm] = useState(0.3)
   const [tallyModel, setTallyModel] = useState('gpt-oss:120b')
@@ -256,7 +257,13 @@ tally:
                 if (!file) return
                 try {
                   const result = await uploadTrainingYaml(file)
-                  const cfg = result.data
+                  const raw = result.data
+                  // Support both flat YAML and nested under "training:" key
+                  const cfg = raw.training && typeof raw.training === 'object' ? raw.training : raw
+                  if (cfg.base_model) setBaseModel(cfg.base_model)
+                  if (cfg.max_seq_length != null) setMaxSeqLength(cfg.max_seq_length)
+                  if (cfg.lora_rank != null) setLoraRank(cfg.lora_rank)
+                  if (cfg.lora_alpha != null) setLoraAlpha(cfg.lora_alpha)
                   if (cfg.learning_rate != null) setLearningRate(String(cfg.learning_rate))
                   if (cfg.num_train_epochs != null) setNumEpochs(cfg.num_train_epochs)
                   if (cfg.per_device_train_batch_size != null) setBatchSize(cfg.per_device_train_batch_size)
@@ -264,9 +271,16 @@ tally:
                   if (cfg.optim) setOptimizer(cfg.optim)
                   if (cfg.lr_scheduler_type) setLrScheduler(cfg.lr_scheduler_type)
                   if (cfg.weight_decay != null) setWeightDecay(cfg.weight_decay)
+                  if (cfg.warmup_steps != null) setWarmupSteps(cfg.warmup_steps)
                   if (cfg.max_grad_norm != null) setMaxGradNorm(cfg.max_grad_norm)
                   if (cfg.loss_function) setLossFunction(cfg.loss_function)
                   if (cfg.label_smoothing_factor != null) setLabelSmoothing(cfg.label_smoothing_factor)
+                  // Loop-level keys from top-level YAML
+                  if (raw.termination?.target_score != null) setTargetScore(raw.termination.target_score)
+                  if (raw.termination?.max_cycles != null) setMaxCycles(raw.termination.max_cycles)
+                  if (raw.gate?.improvement_threshold != null) setGateThreshold(raw.gate.improvement_threshold)
+                  if (raw.curation?.min_pairs_per_cycle != null) setMinPairs(raw.curation.min_pairs_per_cycle)
+                  if (raw.tally?.model) setTallyModel(raw.tally.model)
                 } catch (err: any) {
                   // show error via store
                 }
@@ -279,7 +293,7 @@ tally:
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
               {/* Config Preset */}
               <div style={{ gridColumn: '1 / -1' }}>
-                <label style={labelStyle}>Config File</label>
+                <label style={labelStyle}>Config File<InfoTip text="YAML config file that sets loop behavior, gate rules, and retrieval sources." /></label>
                 <select value={configPath} onChange={e => setConfigPath(e.target.value)} style={inputStyle}>
                   <option value="configs/closed_loop.yaml">closed_loop.yaml (production)</option>
                   <option value="configs/closed_loop_test.yaml">closed_loop_test.yaml (test)</option>
@@ -288,11 +302,11 @@ tally:
 
               {/* Model */}
               <div>
-                <label style={labelStyle}>Base Model</label>
+                <label style={labelStyle}>Base Model<InfoTip text="HuggingFace model ID or local path. The model that gets fine-tuned each cycle." /></label>
                 <input value={baseModel} onChange={e => setBaseModel(e.target.value)} style={inputStyle} />
               </div>
               <div>
-                <label style={labelStyle}>Context Length</label>
+                <label style={labelStyle}>Context Length<InfoTip text="Max token sequence length per training sample. Longer = more context but more VRAM." /></label>
                 <select value={maxSeqLength} onChange={e => setMaxSeqLength(Number(e.target.value))} style={inputStyle}>
                   <option value={512}>512</option>
                   <option value={1024}>1024</option>
@@ -304,55 +318,55 @@ tally:
                 </select>
               </div>
               <div>
-                <label style={labelStyle}>LoRA Rank</label>
+                <label style={labelStyle}>LoRA Rank<InfoTip text="Rank of the low-rank adaptation matrices. Higher = more trainable params and expressiveness." /></label>
                 <input type="number" value={loraRank} onChange={e => setLoraRank(Number(e.target.value))} style={inputStyle} />
               </div>
               <div>
-                <label style={labelStyle}>LoRA Alpha</label>
+                <label style={labelStyle}>LoRA Alpha<InfoTip text="Scaling factor for LoRA updates. Typically set to 2x the rank. Controls update magnitude." /></label>
                 <input type="number" value={loraAlpha} onChange={e => setLoraAlpha(Number(e.target.value))} style={inputStyle} />
               </div>
 
               {/* Training */}
               <div>
-                <label style={labelStyle}>Learning Rate</label>
+                <label style={labelStyle}>Learning Rate<InfoTip text="Step size for weight updates. Too high = instability, too low = slow convergence." /></label>
                 <input value={learningRate} onChange={e => setLearningRate(e.target.value)} style={inputStyle} />
               </div>
               <div>
-                <label style={labelStyle}>Epochs</label>
+                <label style={labelStyle}>Epochs<InfoTip text="Number of full passes over the training dataset per cycle." /></label>
                 <input type="number" value={numEpochs} onChange={e => setNumEpochs(Number(e.target.value))} style={inputStyle} />
               </div>
               <div>
-                <label style={labelStyle}>Batch Size</label>
+                <label style={labelStyle}>Batch Size<InfoTip text="Samples processed per GPU per step. Larger = smoother gradients but more VRAM." /></label>
                 <input type="number" value={batchSize} onChange={e => setBatchSize(Number(e.target.value))} style={inputStyle} />
               </div>
               <div>
-                <label style={labelStyle}>Grad Accumulation</label>
+                <label style={labelStyle}>Grad Accumulation<InfoTip text="Accumulate gradients over N steps before updating. Effective batch = batch_size x this value." /></label>
                 <input type="number" value={gradAccumSteps} onChange={e => setGradAccumSteps(Number(e.target.value))} style={inputStyle} />
               </div>
 
               {/* Loop */}
               <div>
-                <label style={labelStyle}>Target Score (%)</label>
+                <label style={labelStyle}>Target Score (%)<InfoTip text="Benchmark score goal. The loop stops when the model reaches this accuracy." /></label>
                 <input type="number" value={targetScore} onChange={e => setTargetScore(Number(e.target.value))} style={inputStyle} />
               </div>
               <div>
-                <label style={labelStyle}>Max Cycles</label>
+                <label style={labelStyle}>Max Cycles<InfoTip text="Upper limit on evolution cycles. The loop stops after this many iterations regardless of score." /></label>
                 <input type="number" value={maxCycles} onChange={e => setMaxCycles(Number(e.target.value))} style={inputStyle} />
               </div>
               <div>
-                <label style={labelStyle}>Gate Threshold (pp)</label>
+                <label style={labelStyle}>Gate Threshold (pp)<InfoTip text="Minimum improvement in percentage points required to pass the quality gate and keep training." /></label>
                 <input type="number" step="0.1" value={gateThreshold} onChange={e => setGateThreshold(Number(e.target.value))} style={inputStyle} />
               </div>
               <div>
-                <label style={labelStyle}>Min Pairs / Cycle</label>
+                <label style={labelStyle}>Min Pairs / Cycle<InfoTip text="Minimum Q&A pairs to generate per cycle. More pairs = better coverage but longer curation." /></label>
                 <input type="number" value={minPairs} onChange={e => setMinPairs(Number(e.target.value))} style={inputStyle} />
               </div>
               <div>
-                <label style={labelStyle}>Tally Model</label>
+                <label style={labelStyle}>Tally Model<InfoTip text="LLM used by the tally agent to diagnose benchmark failures and identify weak knowledge areas." /></label>
                 <input value={tallyModel} onChange={e => setTallyModel(e.target.value)} style={inputStyle} />
               </div>
               <div>
-                <label style={labelStyle}>Loss Function</label>
+                <label style={labelStyle}>Loss Function<InfoTip text="Objective function for training. Focal loss down-weights easy samples to focus on hard examples." /></label>
                 <select value={lossFunction} onChange={e => setLossFunction(e.target.value)} style={inputStyle}>
                   <option value="cross_entropy">CrossEntropyLoss</option>
                   <option value="nll">NLLLoss</option>
@@ -376,11 +390,11 @@ tally:
                 </select>
               </div>
               <div>
-                <label style={labelStyle}>Label Smoothing</label>
+                <label style={labelStyle}>Label Smoothing<InfoTip text="Softens target distribution by mixing in uniform probability. Reduces overconfidence." /></label>
                 <input type="number" step="0.01" min="0" max="0.5" value={labelSmoothing} onChange={e => setLabelSmoothing(Number(e.target.value))} style={inputStyle} />
               </div>
               <div>
-                <label style={labelStyle}>Optimizer</label>
+                <label style={labelStyle}>Optimizer<InfoTip text="Algorithm for updating weights. adamw_8bit saves VRAM via quantized optimizer states." /></label>
                 <select value={optimizer} onChange={e => setOptimizer(e.target.value)} style={inputStyle}>
                   <optgroup label="AdamW">
                     <option value="adamw_torch">adamw_torch</option>
@@ -425,7 +439,7 @@ tally:
                 </select>
               </div>
               <div>
-                <label style={labelStyle}>LR Scheduler</label>
+                <label style={labelStyle}>LR Scheduler<InfoTip text="Controls how learning rate changes over training. Cosine decays smoothly to zero." /></label>
                 <select value={lrScheduler} onChange={e => setLrScheduler(e.target.value)} style={inputStyle}>
                   <option value="cosine">Cosine</option>
                   <option value="linear">Linear</option>
@@ -438,13 +452,13 @@ tally:
                 </select>
               </div>
               <div>
-                <label style={labelStyle}>Weight Decay</label>
+                <label style={labelStyle}>Weight Decay<InfoTip text="L2 regularization penalty. Prevents large weights and reduces overfitting." /></label>
                 <input type="number" step="0.01" min="0" max="1" value={weightDecay} onChange={e => setWeightDecay(Number(e.target.value))} style={inputStyle} />
               </div>
 
               {/* Seed Dataset */}
               <div style={{ gridColumn: '1 / -1' }}>
-                <label style={labelStyle}>Seed Dataset</label>
+                <label style={labelStyle}>Seed Dataset<InfoTip text="Initial dataset to train on in cycle 0. Subsequent cycles add curated data from retrieved papers." /></label>
                 <select
                   value={seedDatasetId ?? ''}
                   onChange={e => setSeedDatasetId(e.target.value ? Number(e.target.value) : null)}

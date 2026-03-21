@@ -16,7 +16,7 @@ learning_rate: 1.0e-5
 lr_scheduler_type: "cosine"
 warmup_steps: 100
 max_grad_norm: 0.3
-weight_decay: 0.1
+weight_decay: 0.01
 
 # Optimizer
 optim: "adamw_8bit"

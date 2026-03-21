@@ -360,14 +360,37 @@ def closed_loop_stop():
 @click.option("--host", default="0.0.0.0", help="Host to bind to")
 @click.option("--port", default=8000, type=int, help="Port to bind to")
 @click.option("--reload", "use_reload", is_flag=True, help="Enable auto-reload for development")
-def serve(host, port, use_reload):
+@click.option("--skip-build", is_flag=True, help="Skip frontend rebuild")
+def serve(host, port, use_reload, skip_build):
     """Launch the SDGS web interface."""
+    import shutil
+    import subprocess
+
     try:
         import uvicorn
     except ImportError:
         raise click.ClickException(
             "Web dependencies not installed. Run: pip install -e '.[web]'"
         )
+
+    frontend_dir = Path(__file__).parent / "web" / "frontend"
+    if not skip_build and (frontend_dir / "package.json").exists():
+        npm = shutil.which("npm")
+        if npm:
+            click.echo("Building frontend...")
+            result = subprocess.run(
+                [npm, "run", "build"],
+                cwd=str(frontend_dir),
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                click.echo(f"Frontend build failed:\n{result.stderr}", err=True)
+                raise click.Abort()
+            click.echo("Frontend build complete.")
+        else:
+            click.echo("npm not found -- skipping frontend build. Serving existing dist/.", err=True)
+
     click.echo(f"Starting SDGS Web on http://{host}:{port}")
     uvicorn.run(
         "sdgs.web.app:app",
