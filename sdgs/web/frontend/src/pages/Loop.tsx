@@ -293,10 +293,10 @@ tally:
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
               {/* Config Preset */}
               <div style={{ gridColumn: '1 / -1' }}>
-                <label style={labelStyle}>Config File<InfoTip text="YAML config file that sets loop behavior, gate rules, and retrieval sources." /></label>
+                <label style={labelStyle}>Run Type<InfoTip text="Production uses full benchmarks, retrieval, and verification. Test uses smaller limits for quick iteration." /></label>
                 <select value={configPath} onChange={e => setConfigPath(e.target.value)} style={inputStyle}>
-                  <option value="configs/closed_loop.yaml">closed_loop.yaml (production)</option>
-                  <option value="configs/closed_loop_test.yaml">closed_loop_test.yaml (test)</option>
+                  <option value="configs/closed_loop.yaml">Production</option>
+                  <option value="configs/closed_loop_test.yaml">Test</option>
                 </select>
               </div>
 

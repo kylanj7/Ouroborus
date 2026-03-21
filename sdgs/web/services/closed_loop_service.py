@@ -218,9 +218,11 @@ def start_closed_loop(config_path: str | None = None, seed_dataset_path: str | N
     log.info("[closed-loop:%s] Starting background orchestrator subprocess", loop_id)
 
     # Create a multiprocessing queue for events from the subprocess
-    mp_queue: multiprocessing.Queue = multiprocessing.Queue()
+    # Use 'spawn' context so CUDA can initialize cleanly in the child process
+    ctx = multiprocessing.get_context("spawn")
+    mp_queue: multiprocessing.Queue = ctx.Queue()
 
-    proc = multiprocessing.Process(
+    proc = ctx.Process(
         target=_run_loop_subprocess,
         args=(loop_id, config_path, seed_dataset_path, mp_queue),
         daemon=True,
