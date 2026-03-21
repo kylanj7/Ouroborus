@@ -189,6 +189,9 @@ class ClosedLoopOrchestrator:
                             len(tally_metadata.get("clusters", [])),
                             len(tally_metadata.get("search_queries", [])))
 
+                # Free tally model VRAM before next stage
+                unload_model(self._config.tally.model)
+
                 # [2] RETRIEVING
                 self._state.update_stage(loop_id, cycle, Stage.RETRIEVING)
                 t0 = time.time()
@@ -240,6 +243,7 @@ class ClosedLoopOrchestrator:
                         time.time() - t0, adapter_path, training_loss)
 
             # [5] MERGING
+            unload_all_models()  # ensure clean VRAM for merge (loads full FP16 model)
             self._state.update_stage(loop_id, cycle, Stage.MERGING)
             t0 = time.time()
             self._current_version += 1
@@ -358,6 +362,8 @@ class ClosedLoopOrchestrator:
         Returns:
             Tuple of (adapter_path, final_training_loss).
         """
+        import gc
+        import torch
         from sdgs.web.engine.trainer import QwenTrainer
 
         output_dir = self._checkpoint_dir / f"training-cycle-{cycle}"
@@ -371,23 +377,38 @@ class ClosedLoopOrchestrator:
                 "num_train_epochs": 1,
             },
         )
-        trainer.load_model()
-        trainer.prepare_dataset()
-        stats = trainer.train()
-        adapter_path_str = trainer.save_adapter(str(output_dir))
+        try:
+            trainer.load_model()
+            trainer.prepare_dataset()
+            stats = trainer.train()
+            adapter_path_str = trainer.save_adapter(str(output_dir))
+            training_loss = stats.get("training_loss", 0.0)
+        finally:
+            # Free training model from VRAM
+            del trainer
+            gc.collect()
+            torch.cuda.empty_cache()
+            logger.info("Training model freed from VRAM")
 
-        training_loss = stats.get("training_loss", 0.0)
         return Path(adapter_path_str), training_loss
 
     def _run_merge(self, adapter_path: Path, output_dir: str) -> None:
         """Merge LoRA adapter into the base model."""
+        import gc
+        import torch
         from sdgs.web.engine.merge_convert import merge_lora
 
-        merge_lora(
-            adapter_path=str(adapter_path),
-            base_model=self._base_model_path,
-            output_dir=output_dir,
-        )
+        try:
+            merge_lora(
+                adapter_path=str(adapter_path),
+                base_model=self._base_model_path,
+                output_dir=output_dir,
+            )
+        finally:
+            # Free merge artifacts from VRAM
+            gc.collect()
+            torch.cuda.empty_cache()
+            logger.info("Merge model freed from VRAM")
 
     def _handle_fail_cap(
         self,
