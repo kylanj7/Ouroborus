@@ -156,7 +156,7 @@ The closed loop is an autonomous system that teaches a small model (7-8B paramet
           |  [1] TALLY                                    |  A LangChain agent (gpt-oss:120b via
           |  Diagnose failures                            |  Ollama) reads every question the model
           |                                               |  got wrong. It doesn't just count
-     ^    |  "Why did the model fail?"                    |  failures -- it clusters them by
+     +--->|  "Why did the model fail?"                    |  failures -- it clusters them by
      |    |  "What knowledge is missing?"                 |  knowledge gap. Example: "Model confuses
      |    |  "What should we teach it?"                   |  T1/T2 decoherence timescales" rather
      |    |                                               |  than just "quantum physics is weak."
@@ -170,7 +170,7 @@ The closed loop is an autonomous system that teaches a small model (7-8B paramet
      |    |  Find papers on weak areas                    |  retrieve papers matching the tally
      |    |                                               |  agent's search queries. Full text
      |    |  Sources:                                     |  is extracted from PDFs via PyMuPDF.
-     |    |  - Semantic Scholar API                       |
+     ^    |  - Semantic Scholar API                       |
      |    |  - arXiv API                                  |  Only papers relevant to the diagnosed
      |    |                                               |  knowledge gaps are retrieved.
      |    +----------------------+-----------------------+
@@ -196,7 +196,7 @@ The closed loop is an autonomous system that teaches a small model (7-8B paramet
      |    +----------------------v-----------------------+
      |    |  [4] TRAIN                                    |  LoRA fine-tuning (4-bit quantized,
      |    |  LoRA fine-tune on curated dataset            |  nf4) on the curated dataset.
-     |    |                                               |  3 epochs, cosine LR schedule.
+     ^    |                                               |  3 epochs, cosine LR schedule.
      |    |                                               |  Fresh LoRA adapter each cycle --
      |    |                                               |  no adapter stacking.
      |    +----------------------+-----------------------+
@@ -220,7 +220,7 @@ The closed loop is an autonomous system that teaches a small model (7-8B paramet
      |    |  - MMLU college_physics                       |  and Google to measure frontier model
      |    |  - MMLU conceptual_physics                    |  scientific capability.
      |    |  - SciBench                                   |
-     |    |                                               |  MMLU: Massive Multitask Language
+     ^    |                                               |  MMLU: Massive Multitask Language
      |    |  Gate metric:                                 |  Understanding. Standard benchmark
      |    |  average of all 4 scores                      |  for knowledge across 57 subjects.
      |    |                                               |  We use the physics subsets.
@@ -239,7 +239,7 @@ The closed loop is an autonomous system that teaches a small model (7-8B paramet
      |    |    -> new base for next cycle                 |  Old checkpoints cleaned up (keep
      |    |                                               |  last 5 + original).
      |    |  < 0.5pp or regression:                       |
-     |    |    ROLLBACK                                   |  NO: Delete the merged model. Roll back
+     ^    |    ROLLBACK                                   |  NO: Delete the merged model. Roll back
      |    |    -> delete merged model                     |  to the previous checkpoint. The tally
      |    |    -> revert to last good checkpoint          |  agent will diagnose differently next
      |    |                                               |  cycle and generate different data.
@@ -250,7 +250,7 @@ The closed loop is an autonomous system that teaches a small model (7-8B paramet
      |    +----------------------+-----------------------+
      |                           |
      |                           |  Loop back to [1] TALLY
-     +---------------------------+  with the new (or same) base model
+     +--------------<------------+  with the new (or same) base model
 ```
 
 ### Merge-and-Continue
