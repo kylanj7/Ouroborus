@@ -199,7 +199,7 @@ def get_aggregate_stats(
     db: Session = Depends(get_db),
 ):
     """Aggregate token usage, costs, and counts across all user datasets."""
-    from sqlalchemy import func
+    from sqlalchemy import func, case
     from ..db.models import Paper, TrainingRun
 
     ds_stats = db.query(
@@ -210,6 +210,9 @@ def get_aggregate_stats(
         func.sum(Dataset.gpu_kwh),
         func.sum(Dataset.actual_size),
         func.sum(Dataset.duration_seconds),
+        func.sum(case((Dataset.status == "completed", 1), else_=0)),
+        func.sum(case((Dataset.status == "failed", 1), else_=0)),
+        func.sum(case((Dataset.status.in_(["pending", "running"]), 1), else_=0)),
     ).filter(Dataset.user_id == current_user.id).first()
 
     paper_count = db.query(func.count(Paper.id)).filter(
@@ -218,21 +221,6 @@ def get_aggregate_stats(
 
     training_count = db.query(func.count(TrainingRun.id)).filter(
         TrainingRun.user_id == current_user.id,
-    ).scalar() or 0
-
-    completed_datasets = db.query(func.count(Dataset.id)).filter(
-        Dataset.user_id == current_user.id,
-        Dataset.status == "completed",
-    ).scalar() or 0
-
-    failed_datasets = db.query(func.count(Dataset.id)).filter(
-        Dataset.user_id == current_user.id,
-        Dataset.status == "failed",
-    ).scalar() or 0
-
-    running_datasets = db.query(func.count(Dataset.id)).filter(
-        Dataset.user_id == current_user.id,
-        Dataset.status.in_(["pending", "running"]),
     ).scalar() or 0
 
     # Paper distribution by topic
@@ -259,9 +247,9 @@ def get_aggregate_stats(
 
     return {
         "dataset_count": ds_stats[0] or 0,
-        "completed_datasets": completed_datasets,
-        "failed_datasets": failed_datasets,
-        "running_datasets": running_datasets,
+        "completed_datasets": ds_stats[7] or 0,
+        "failed_datasets": ds_stats[8] or 0,
+        "running_datasets": ds_stats[9] or 0,
         "paper_count": paper_count,
         "training_count": training_count,
         "total_prompt_tokens": ds_stats[1] or 0,

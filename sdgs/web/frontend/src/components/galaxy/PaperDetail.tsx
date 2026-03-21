@@ -118,7 +118,7 @@ export default function PaperDetailPanel({ paper, onClose }: Props) {
             fontSize: '12px', color: 'var(--text-muted)', marginBottom: '12px',
           }}>
             <BookOpen size={14} />
-            {paper.qa_pairs.length} Q&A Pairs
+            {paper.total_qa_pairs} Q&A Pairs{paper.qa_pairs.length < paper.total_qa_pairs ? ` (showing ${paper.qa_pairs.length})` : ''}
           </div>
 
           {paper.qa_pairs.map((qa, idx) => (

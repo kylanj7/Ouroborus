@@ -51,6 +51,12 @@ def _migrate(eng):
             with eng.begin() as conn:
                 conn.execute(text("ALTER TABLE users ADD COLUMN core_token TEXT"))
 
+    # Performance indexes (idempotent -- safe for existing and new databases)
+    with eng.begin() as conn:
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_papers_topic ON papers (topic)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_qa_pairs_paper_id ON qa_pairs (paper_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_qa_pairs_dataset_id ON qa_pairs (dataset_id)"))
+
 
 def _backfill_paper_topics(eng):
     """Classify existing papers that have no topic set."""

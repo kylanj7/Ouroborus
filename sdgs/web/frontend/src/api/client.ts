@@ -514,6 +514,7 @@ export interface PaperDetail {
   year: number | null
   citation_count: number
   url: string | null
+  total_qa_pairs: number
   qa_pairs: QAPair[]
 }
 

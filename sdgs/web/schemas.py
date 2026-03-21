@@ -260,6 +260,7 @@ class PaperDetail(BaseModel):
     year: int | None = None
     citation_count: int = 0
     url: str | None = None
+    total_qa_pairs: int = 0
     qa_pairs: list[QAPairResponse] = []
 
 

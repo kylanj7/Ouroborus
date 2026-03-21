@@ -45,7 +45,39 @@ def build_galaxy_data(db: Session, user_id: int) -> dict:
         .filter(Dataset.user_id == user_id, Dataset.status == "completed")
         .all()
     )
-    papers = db.query(Paper).filter(Paper.user_id == user_id).all()
+    MAX_PAPERS = 5000
+
+    # Collect paper IDs belonging to completed datasets (single query)
+    dataset_paper_id_rows = (
+        db.query(Paper.id)
+        .filter(Paper.dataset_id.in_([ds.id for ds in datasets]))
+        .all()
+    ) if datasets else []
+    dataset_paper_ids = {pid for (pid,) in dataset_paper_id_rows}
+
+    # Load dataset papers first
+    dataset_papers = (
+        db.query(Paper)
+        .filter(Paper.user_id == user_id, Paper.id.in_(dataset_paper_ids))
+        .all()
+    ) if dataset_paper_ids else []
+
+    # Fill remaining budget with orphan papers (most-cited first)
+    remaining_budget = MAX_PAPERS - len(dataset_papers)
+    if remaining_budget > 0:
+        orphan_query = (
+            db.query(Paper)
+            .filter(Paper.user_id == user_id)
+            .order_by(Paper.citation_count.desc())
+            .limit(remaining_budget)
+        )
+        if dataset_paper_ids:
+            orphan_query = orphan_query.filter(~Paper.id.in_(dataset_paper_ids))
+        orphan_papers = orphan_query.all()
+    else:
+        orphan_papers = []
+
+    papers = dataset_papers + orphan_papers
 
     if not datasets and not papers:
         return {"nodes": [], "links": [], "clusters": []}
@@ -75,48 +107,53 @@ def build_galaxy_data(db: Session, user_id: int) -> dict:
         qa_count_by_dataset[dataset_id] = cnt
 
     # Load a limited sample of QA pairs for graph nodes (not all)
+    # Sample proportionally across datasets so every dataset gets QA nodes
     MAX_QA_PER_PARENT = 8
     MAX_QA_TOTAL = 2000
-    paper_ids = [p.id for p in papers]
     dataset_ids = [ds.id for ds in datasets]
 
     qa_by_paper: dict[int, list] = defaultdict(list)
     qa_by_dataset_only: dict[int, list] = defaultdict(list)
-    qa_total = 0
 
-    if paper_ids:
-        # Load sampled QA pairs for papers
-        sampled_qa = (
-            db.query(QAPair)
-            .filter(QAPair.user_id == user_id, QAPair.paper_id.in_(paper_ids))
-            .limit(MAX_QA_TOTAL)
-            .all()
+    # Compute per-dataset QA budget proportional to their paper count
+    total_papers = sum(len(papers_by_dataset[ds.id]) for ds in datasets) or 1
+    ds_budgets: dict[int, int] = {}
+    for ds in datasets:
+        ds_paper_count = max(len(papers_by_dataset[ds.id]), 1)
+        ds_budgets[ds.id] = max(
+            ds_paper_count * MAX_QA_PER_PARENT,
+            int(MAX_QA_TOTAL * ds_paper_count / total_papers),
         )
-        for qa in sampled_qa:
-            if qa_total >= MAX_QA_TOTAL:
-                break
-            if len(qa_by_paper[qa.paper_id]) < MAX_QA_PER_PARENT:
-                qa_by_paper[qa.paper_id].append(qa)
-                qa_total += 1
 
-    if dataset_ids and qa_total < MAX_QA_TOTAL:
-        # Load sampled QA pairs for datasets (paper-less ones)
+    for ds in datasets:
+        ds_paper_ids = [p.id for p in papers_by_dataset[ds.id]]
+        budget = ds_budgets[ds.id]
+
+        if ds_paper_ids:
+            sampled_qa = (
+                db.query(QAPair)
+                .filter(QAPair.user_id == user_id, QAPair.paper_id.in_(ds_paper_ids))
+                .limit(budget)
+                .all()
+            )
+            for qa in sampled_qa:
+                if len(qa_by_paper[qa.paper_id]) < MAX_QA_PER_PARENT:
+                    qa_by_paper[qa.paper_id].append(qa)
+
+        # Paper-less QA pairs for this dataset
         sampled_ds_qa = (
             db.query(QAPair)
             .filter(
                 QAPair.user_id == user_id,
                 QAPair.paper_id.is_(None),
-                QAPair.dataset_id.in_(dataset_ids),
+                QAPair.dataset_id == ds.id,
             )
-            .limit(MAX_QA_TOTAL - qa_total)
+            .limit(MAX_QA_PER_PARENT)
             .all()
         )
         for qa in sampled_ds_qa:
-            if qa_total >= MAX_QA_TOTAL:
-                break
-            if len(qa_by_dataset_only[qa.dataset_id]) < MAX_QA_PER_PARENT:
-                qa_by_dataset_only[qa.dataset_id].append(qa)
-                qa_total += 1
+            if len(qa_by_dataset_only[ds.id]) < MAX_QA_PER_PARENT:
+                qa_by_dataset_only[ds.id].append(qa)
 
     # Extract keywords and build paper keyword map
     paper_keywords: dict[int, list[str]] = {}
@@ -143,18 +180,28 @@ def build_galaxy_data(db: Session, user_id: int) -> dict:
         for p in ds_papers:
             paper_cluster[p.id] = i
 
-    # Assign orphan papers (no dataset) to a misc cluster
+    # Assign orphan papers (no dataset) to topic-based clusters
+    ORPHAN_COLORS = [
+        "#94a3b8", "#a78bfa", "#f9a8d4", "#67e8f9", "#fbbf24",
+        "#86efac", "#fda4af", "#c4b5fd", "#7dd3fc", "#d9f99d",
+    ]
     orphan_papers = [p for p in papers if p.id not in paper_cluster]
     if orphan_papers:
-        misc_idx = len(cluster_infos)
-        cluster_infos.append({
-            "id": misc_idx,
-            "label": "uncategorized",
-            "color": "#888888",
-            "paper_count": len(orphan_papers),
-        })
+        # Group by topic
+        orphan_by_topic: dict[str, list] = defaultdict(list)
         for p in orphan_papers:
-            paper_cluster[p.id] = misc_idx
+            orphan_by_topic[p.topic or "Other"].append(p)
+
+        for j, (topic, topic_papers) in enumerate(sorted(orphan_by_topic.items(), key=lambda x: -len(x[1]))):
+            cluster_idx = len(cluster_infos)
+            cluster_infos.append({
+                "id": cluster_idx,
+                "label": topic[:30],
+                "color": ORPHAN_COLORS[j % len(ORPHAN_COLORS)],
+                "paper_count": len(topic_papers),
+            })
+            for p in topic_papers:
+                paper_cluster[p.id] = cluster_idx
 
     # Build nodes
     nodes = []
@@ -264,22 +311,25 @@ def build_galaxy_data(db: Session, user_id: int) -> dict:
                 "type": "dataset_paper",
             })
 
-    # Shared keyword links between papers — inverted index approach (O(n*k) not O(n^2))
+    # Shared keyword links between papers — inverted index approach
     keyword_to_papers: dict[str, list[int]] = defaultdict(list)
     for pid, kws in paper_keywords.items():
         for kw in kws:
             keyword_to_papers[kw].append(pid)
 
     pair_overlap: dict[tuple[int, int], int] = defaultdict(int)
+    MAX_KEYWORD_PAPERS = 30
     for _kw, pids in keyword_to_papers.items():
-        if len(pids) > 50:
-            continue  # skip overly common keywords
+        if len(pids) > MAX_KEYWORD_PAPERS:
+            continue
         for i in range(len(pids)):
             for j in range(i + 1, len(pids)):
                 key = (min(pids[i], pids[j]), max(pids[i], pids[j]))
                 pair_overlap[key] += 1
 
-    for (p1_id, p2_id), overlap in pair_overlap.items():
+    MAX_KEYWORD_LINKS = 2000
+    keyword_pairs = sorted(pair_overlap.items(), key=lambda x: -x[1])
+    for (p1_id, p2_id), overlap in keyword_pairs[:MAX_KEYWORD_LINKS]:
         if overlap >= 3:
             links.append({
                 "source": f"paper-{p1_id}",
@@ -295,13 +345,21 @@ def build_galaxy_data(db: Session, user_id: int) -> dict:
     }
 
 
-def get_paper_detail(db: Session, paper_id: int, user_id: int) -> dict | None:
+def get_paper_detail(db: Session, paper_id: int, user_id: int, limit: int = 50, offset: int = 0) -> dict | None:
     """Get paper detail with its Q&A pairs, scoped to user."""
     paper = db.query(Paper).filter(Paper.id == paper_id, Paper.user_id == user_id).first()
     if not paper:
         return None
 
-    qa_pairs = db.query(QAPair).filter(QAPair.paper_id == paper.id).all()
+    total_qa = db.query(func.count(QAPair.id)).filter(QAPair.paper_id == paper.id).scalar() or 0
+    qa_pairs = (
+        db.query(QAPair)
+        .filter(QAPair.paper_id == paper.id)
+        .order_by(QAPair.id)
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
 
     return {
         "paper_id": paper.paper_id or str(paper.id),
@@ -311,6 +369,7 @@ def get_paper_detail(db: Session, paper_id: int, user_id: int) -> dict | None:
         "year": paper.year,
         "citation_count": paper.citation_count or 0,
         "url": paper.url,
+        "total_qa_pairs": total_qa,
         "qa_pairs": [
             {
                 "instruction": qa.instruction,

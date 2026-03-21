@@ -1,5 +1,5 @@
 """Galaxy viewer API — graph data and paper detail endpoints."""
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from ..db.database import get_db
@@ -22,10 +22,12 @@ def get_galaxy_data(
 @router.get("/paper/{paper_id}", response_model=PaperDetail)
 def get_galaxy_paper(
     paper_id: int,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    detail = get_paper_detail(db, paper_id, user_id=current_user.id)
+    detail = get_paper_detail(db, paper_id, user_id=current_user.id, limit=limit, offset=offset)
     if not detail:
         raise HTTPException(404, "Paper not found")
     return PaperDetail(**detail)

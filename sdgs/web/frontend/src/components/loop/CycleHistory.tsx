@@ -54,7 +54,7 @@ export default function CycleHistory({ cycles }: CycleHistoryProps) {
   }
 
   return (
-    <div style={{ overflowX: 'auto' }}>
+    <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '500px' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
         <thead>
           <tr>

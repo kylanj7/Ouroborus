@@ -154,12 +154,15 @@ export default function Dashboard() {
       value: d.qa_pairs,
     }))
 
+  const MAX_TOPIC_BARS = 25
   const paperTopicData = (stats.paper_by_topic || [])
+    .slice(0, MAX_TOPIC_BARS)
     .map((t) => ({
       name: t.topic.length > 25 ? t.topic.slice(0, 22) + '...' : t.topic,
       fullName: t.topic,
       value: t.count,
     }))
+  const hiddenTopicCount = Math.max(0, (stats.paper_by_topic || []).length - MAX_TOPIC_BARS)
 
   const tooltipStyle = {
     background: 'rgba(8, 12, 28, 0.92)',
@@ -341,9 +344,11 @@ export default function Dashboard() {
           <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '1px', background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent)' }} />
           <div style={{ marginBottom: '24px' }}>
             <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#fff', letterSpacing: '-0.01em' }}>PDF's by Category</h3>
-            <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>{paperTopicData.length} categories</p>
+            <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              {(stats.paper_by_topic || []).length} categories{hiddenTopicCount > 0 ? ` (showing top ${MAX_TOPIC_BARS})` : ''}
+            </p>
           </div>
-          <ResponsiveContainer width="100%" height={Math.max(260, paperTopicData.length * 38 + 40)}>
+          <ResponsiveContainer width="100%" height={Math.max(260, Math.min(500, paperTopicData.length * 38 + 40))}>
             <BarChart data={paperTopicData} layout="vertical" margin={{ left: 10, right: 30, top: 5, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" horizontal={false} />
               <XAxis type="number" tick={{ fontSize: 10, fill: '#475569' }} axisLine={false} tickLine={false} />
