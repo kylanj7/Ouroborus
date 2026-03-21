@@ -42,6 +42,11 @@ export default function StartTraining() {
   // LoRA config
   const [loraRank, setLoraRank] = useState(64)
   const [loraAlpha, setLoraAlpha] = useState(128)
+  const [loraDropout, setLoraDropout] = useState(0.1)
+  const [rsLora, setRsLora] = useState(false)
+  const [targetModules, setTargetModules] = useState<string[]>([
+    'q_proj', 'k_proj', 'v_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj',
+  ])
 
   // Training config
   const [showAdvanced, setShowAdvanced] = useState(false)
@@ -57,6 +62,12 @@ export default function StartTraining() {
   const [weightDecay, setWeightDecay] = useState(0.01)
   const [warmupSteps, setWarmupSteps] = useState(100)
   const [maxGradNorm, setMaxGradNorm] = useState(0.3)
+  const [quantType, setQuantType] = useState('nf4')
+  const [warmupRatio, setWarmupRatio] = useState(0.03)
+  const [neftuneNoiseAlpha, setNeftuneNoiseAlpha] = useState<number | null>(null)
+  const [loggingSteps, setLoggingSteps] = useState(1)
+  const [evalSteps, setEvalSteps] = useState(25)
+  const [earlyStoppingPatience, setEarlyStoppingPatience] = useState(3)
   const [checkpoints, setCheckpoints] = useState<ArtifactEntry[]>([])
   const [resumeCheckpoint, setResumeCheckpoint] = useState('')
   const [customCheckpoint, setCustomCheckpoint] = useState(false)
@@ -534,6 +545,54 @@ export default function StartTraining() {
               disabled={submitting}
             />
           </div>
+          <div>
+            <label>LoRA Dropout<InfoTip text="Dropout probability on LoRA layers. Adds regularization to prevent overfitting." /></label>
+            <input type="number" step="0.01" min="0" max="1" value={loraDropout} onChange={(e) => setLoraDropout(parseFloat(e.target.value) || 0)} disabled={submitting} />
+          </div>
+          <div>
+            <label>RS-LoRA<InfoTip text="Rank-Stabilized LoRA. Scales updates by 1/sqrt(rank) for more stable training at higher ranks." /></label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '11px 0' }}>
+              <input type="checkbox" checked={rsLora} onChange={(e) => setRsLora(e.target.checked)} disabled={submitting} style={{ width: 'auto', margin: 0 }} />
+              <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{rsLora ? 'Enabled' : 'Disabled'}</span>
+            </div>
+          </div>
+          <div>
+            <label>Quantization<InfoTip text="Quantization type for 4-bit training. NF4 is optimized for normally distributed weights." /></label>
+            <select value={quantType} onChange={(e) => setQuantType(e.target.value)} disabled={submitting}>
+              <option value="nf4">NF4 (4-bit NormalFloat)</option>
+              <option value="fp4">FP4 (4-bit Float)</option>
+              <option value="none">None (Full Precision)</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Target Modules */}
+        <div style={{ marginBottom: '20px' }}>
+          <label>Target Modules<InfoTip text="Which model layers to apply LoRA to. More modules = more trainable params." /></label>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+            {['q_proj', 'k_proj', 'v_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj'].map(mod => (
+              <button
+                key={mod}
+                type="button"
+                onClick={() => setTargetModules(prev =>
+                  prev.includes(mod) ? prev.filter(m => m !== mod) : [...prev, mod]
+                )}
+                disabled={submitting}
+                style={{
+                  padding: '4px 10px',
+                  fontSize: 12,
+                  borderRadius: 6,
+                  border: '1px solid',
+                  borderColor: targetModules.includes(mod) ? 'var(--accent-blue)' : 'var(--border-primary)',
+                  background: targetModules.includes(mod) ? 'var(--accent-blue)' : 'var(--bg-tertiary)',
+                  color: targetModules.includes(mod) ? '#fff' : 'var(--text-secondary)',
+                  cursor: 'pointer',
+                }}
+              >
+                {mod}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Training Configuration -- matches Evolution Loop layout */}
@@ -718,6 +777,26 @@ export default function StartTraining() {
             <div>
               <label>Max Grad Norm<InfoTip text="Clips gradients to this max norm. Prevents exploding gradients during training." /></label>
               <input type="number" step="0.1" min="0" value={maxGradNorm} onChange={(e) => setMaxGradNorm(parseFloat(e.target.value) || 0)} disabled={submitting} />
+            </div>
+            <div>
+              <label>Warmup Ratio<InfoTip text="Fraction of total steps used for learning rate warmup. Alternative to warmup steps." /></label>
+              <input type="number" step="0.01" min="0" max="1" value={warmupRatio} onChange={(e) => setWarmupRatio(parseFloat(e.target.value) || 0)} disabled={submitting} />
+            </div>
+            <div>
+              <label>Neptune Alpha<InfoTip text="NEFTune noise alpha. Adds noise to embeddings during training for better generalization. 0 = disabled." /></label>
+              <input type="number" step="1" min="0" value={neftuneNoiseAlpha ?? 0} onChange={(e) => { const v = parseInt(e.target.value); setNeftuneNoiseAlpha(v === 0 ? null : v) }} disabled={submitting} />
+            </div>
+            <div>
+              <label>Logging Steps<InfoTip text="Log training metrics every N steps." /></label>
+              <input type="number" min="1" value={loggingSteps} onChange={(e) => setLoggingSteps(Math.max(1, parseInt(e.target.value) || 1))} disabled={submitting} />
+            </div>
+            <div>
+              <label>Eval Steps<InfoTip text="Run evaluation every N steps." /></label>
+              <input type="number" min="1" value={evalSteps} onChange={(e) => setEvalSteps(Math.max(1, parseInt(e.target.value) || 1))} disabled={submitting} />
+            </div>
+            <div>
+              <label>Early Stop Patience<InfoTip text="Stop training if eval loss doesn't improve for N evaluations." /></label>
+              <input type="number" min="1" value={earlyStoppingPatience} onChange={(e) => setEarlyStoppingPatience(Math.max(1, parseInt(e.target.value) || 1))} disabled={submitting} />
             </div>
           </div>
 
