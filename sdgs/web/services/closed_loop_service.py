@@ -106,14 +106,27 @@ def _run_loop_subprocess(
     Runs the orchestrator and sends events back to the parent via mp_queue.
     """
     import logging as _logging
+    from pathlib import Path as _Path
 
-    _logging.basicConfig(
-        level=_logging.INFO,
-        format="%(asctime)s %(levelname)-8s [%(name)s] %(message)s",
-        datefmt="%H:%M:%S",
+    # Set up logging: console + file + SSE bridge
+    log_dir = _Path("logs/loop")
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / f"{loop_id}.log"
+
+    fmt = _logging.Formatter(
+        "%(asctime)s %(levelname)-8s [%(name)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    # Custom log handler that sends events through the mp queue
+    # Console handler
+    console_handler = _logging.StreamHandler()
+    console_handler.setFormatter(fmt)
+
+    # File handler -- persistent log for this loop run
+    file_handler = _logging.FileHandler(str(log_file), mode="w")
+    file_handler.setFormatter(fmt)
+
+    # SSE bridge handler -- sends events to the parent process
     class _MPLogHandler(_logging.Handler):
         def __init__(self, lid: str, q: multiprocessing.Queue):
             super().__init__()
@@ -140,9 +153,21 @@ def _run_loop_subprocess(
                     self._q.put({"type": "stage", "data": stage_value})
                     break
 
-    handler = _MPLogHandler(loop_id, mp_queue)
-    sdgs_loop_logger = _logging.getLogger("sdgs.loop")
-    sdgs_loop_logger.addHandler(handler)
+    sse_handler = _MPLogHandler(loop_id, mp_queue)
+    sse_handler.setFormatter(fmt)
+
+    # Attach all handlers to the root logger so ALL modules are captured
+    root_logger = _logging.getLogger()
+    root_logger.setLevel(_logging.INFO)
+    root_logger.addHandler(console_handler)
+    root_logger.addHandler(file_handler)
+    root_logger.addHandler(sse_handler)
+
+    # Quiet noisy libraries
+    for noisy in ("httpx", "httpcore", "urllib3", "filelock", "huggingface_hub"):
+        _logging.getLogger(noisy).setLevel(_logging.WARNING)
+
+    root_logger.info("[closed-loop:%s] Log file: %s", loop_id, log_file)
 
     try:
         from sdgs.loop.config_v2 import load_closed_loop_config
@@ -156,13 +181,17 @@ def _run_loop_subprocess(
 
     except Exception as exc:
         tb = traceback.format_exc()
-        print(f"[closed-loop:{loop_id}] CRASH:\n{tb}", flush=True)
+        root_logger.error("[closed-loop:%s] CRASH: %s\n%s", loop_id, exc, tb)
         mp_queue.put({"type": "error", "data": str(exc)})
         mp_queue.put({"type": "log", "data": f"ERROR: {tb}"})
         mp_queue.put({"type": "status", "data": "failed"})
 
     finally:
-        sdgs_loop_logger.removeHandler(handler)
+        root_logger.info("[closed-loop:%s] Subprocess exiting", loop_id)
+        root_logger.removeHandler(console_handler)
+        root_logger.removeHandler(file_handler)
+        root_logger.removeHandler(sse_handler)
+        file_handler.close()
         mp_queue.put(None)  # sentinel
 
 

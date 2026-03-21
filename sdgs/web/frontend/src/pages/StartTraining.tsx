@@ -730,7 +730,7 @@ export default function StartTraining() {
                 {showAdvanced ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                 Generate YAML
               </button>
-              {showAdvanced && (
+              {showAdvanced && (<>
                 <button
                   onClick={() => {
                     const lrNum = typeof learningRate === 'number' ? learningRate : parseFloat(String(learningRate))
@@ -778,7 +778,28 @@ wandb_project_template: "{dataset_name}-{model_name}"
                 >
                   Copy to Clipboard
                 </button>
-              )}
+                <button
+                  onClick={() => {
+                    const lrN = typeof learningRate === 'number' ? learningRate : parseFloat(String(learningRate))
+                    const lrS = lrN < 0.001 ? lrN.toExponential(1) : String(lrN)
+                    const yaml = `---\n# Ouroboros Training Configuration\n\nbase_model: "${baseModel}"\nmax_seq_length: ${maxSeqLength}\nlora_rank: ${loraRank}\nlora_alpha: ${loraAlpha}\n\nper_device_train_batch_size: ${batchSize}\ngradient_accumulation_steps: ${gradAccumSteps}\nnum_train_epochs: ${numEpochs}\nmax_steps: ${maxSteps}\nlearning_rate: ${lrS}\noptim: "${optimizer}"\nlr_scheduler_type: "${lrScheduler}"\nweight_decay: ${weightDecay}\nwarmup_steps: ${warmupSteps}\nmax_grad_norm: ${maxGradNorm}\n\nloss_function: "${lossFunction}"\nlabel_smoothing_factor: ${labelSmoothing}\n\nauto_precision: true\nlogging_steps: 1\nwandb_enabled: true\nwandb_project_template: "{dataset_name}-{model_name}"\n`
+                    const blob = new Blob([yaml], { type: 'text/yaml' })
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = url
+                    a.download = 'training_config.yaml'
+                    a.click()
+                    URL.revokeObjectURL(url)
+                  }}
+                  style={{
+                    fontSize: 12, padding: '4px 12px', borderRadius: 8,
+                    background: 'rgba(139, 92, 246, 0.1)', border: '1px solid rgba(139, 92, 246, 0.2)',
+                    color: 'var(--accent-purple)', cursor: 'pointer', fontWeight: 500,
+                  }}
+                >
+                  Download YAML
+                </button>
+              </>)}
             </div>
             {showAdvanced && (() => {
               const lrNum = typeof learningRate === 'number' ? learningRate : parseFloat(String(learningRate))

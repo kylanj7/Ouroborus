@@ -18,9 +18,12 @@ Supports:
 """
 
 import json
+import logging
 import os
 import threading
 import yaml
+
+log = logging.getLogger(__name__)
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -193,7 +196,7 @@ def log_training_run(
     with open(TRAINING_LOG_FILE, "a") as f:
         f.write(entry)
 
-    print(f"Training run logged to: {TRAINING_LOG_FILE}")
+    log.info("Training run logged to: %s", TRAINING_LOG_FILE)
 
 
 # ---------------------------------------------------------------------------
@@ -442,7 +445,7 @@ class QwenTrainer:
         lora_cfg = mcfg.get("lora", {})
         tok_cfg = mcfg.get("tokenizer", {})
 
-        print(f"Loading model: {model_name}")
+        log.info("Loading model: %s", model_name)
 
         compute_dtype = (
             torch.bfloat16
@@ -465,7 +468,7 @@ class QwenTrainer:
         )
         self.tokenizer.pad_token = self.tokenizer.eos_token
         self.tokenizer.padding_side = tok_cfg.get("padding_side", "right")
-        print("Tokenizer loaded.")
+        log.info("Tokenizer loaded")
 
         self.model = AutoModelForCausalLM.from_pretrained(
             model_name,
@@ -473,7 +476,7 @@ class QwenTrainer:
             device_map="auto",
             trust_remote_code=True,
         )
-        print("Model loaded.")
+        log.info("Model loaded")
 
         self.model = prepare_model_for_kbit_training(self.model)
 
@@ -531,7 +534,7 @@ class QwenTrainer:
         split = dcfg.get("split", "train")
         split_config = dcfg.get("train_val_test_split")
 
-        print(f"Loading dataset: {dataset_name}")
+        log.info("Loading dataset: %s", dataset_name)
 
         # Load the dataset
         is_local = dcfg.get("is_local", False)
@@ -539,12 +542,12 @@ class QwenTrainer:
             dataset = load_dataset("json", data_files=dataset_name, split="train")
         else:
             dataset = load_dataset(dataset_name, split=split)
-        print(f"Dataset loaded: {len(dataset)} examples")
+        log.info("Dataset loaded: %d examples", len(dataset))
 
         # Apply formatting
         formatting_func = create_formatting_function(dcfg)
         dataset = dataset.map(formatting_func, batched=True)
-        print("Dataset formatted.")
+        log.info("Dataset formatted")
 
         # Split
         if split_config:
@@ -567,21 +570,20 @@ class QwenTrainer:
             else:
                 self.val_dataset = split1["test"]
 
-            print(
-                f"Split: train={len(self.train_dataset)}, "
-                f"val={len(self.val_dataset) if self.val_dataset else 0}, "
-                f"test={len(self.test_dataset) if self.test_dataset else 0}"
-            )
+            log.info("Split: train=%d, val=%d, test=%d",
+                     len(self.train_dataset),
+                     len(self.val_dataset) if self.val_dataset else 0,
+                     len(self.test_dataset) if self.test_dataset else 0)
 
             # Save test dataset for later evaluation
             if self.test_dataset:
                 test_save_path = Path("outputs") / "test_dataset"
                 test_save_path.parent.mkdir(parents=True, exist_ok=True)
                 self.test_dataset.save_to_disk(str(test_save_path))
-                print(f"Test dataset saved to: {test_save_path}")
+                log.info("Test dataset saved to: %s", test_save_path)
         else:
             self.train_dataset = dataset
-            print("Using full dataset for training (no split)")
+            log.info("Using full dataset for training (no split)")
 
         counts = (
             len(self.train_dataset),
@@ -592,9 +594,9 @@ class QwenTrainer:
 
     def _prepare_dataset_simple(self) -> Tuple[int, int, int]:
         """Simple JSONL loading with Qwen chat template (backward compatible)."""
-        print(f"Loading dataset: {self.dataset_path}")
+        log.info("Loading dataset: %s", self.dataset_path)
         dataset = load_dataset("json", data_files=self.dataset_path, split="train")
-        print(f"Dataset loaded: {len(dataset)} examples")
+        log.info("Dataset loaded: %d examples", len(dataset))
 
         def _format(examples):
             texts = []
@@ -620,7 +622,7 @@ class QwenTrainer:
             len(self.val_dataset),
             len(self.test_dataset),
         )
-        print(f"Split: train={counts[0]}, val={counts[1]}, test={counts[2]}")
+        log.info("Split: train=%d, val=%d, test=%d", counts[0], counts[1], counts[2])
         return counts
 
     # ------------------------------------------------------------------
@@ -718,11 +720,11 @@ class QwenTrainer:
         if loss_fn_name != "cross_entropy":
             trainer.compute_loss = self._make_custom_loss(loss_fn_name, trainer.compute_loss)
 
-        print("Starting training...")
+        log.info("Starting training...")
         trainer_stats = trainer.train(
             resume_from_checkpoint=self.resume_from_checkpoint
         )
-        print("Training completed.")
+        log.info("Training completed")
 
         metrics = trainer_stats.metrics if hasattr(trainer_stats, "metrics") else {}
         stats = {
@@ -880,7 +882,7 @@ class QwenTrainer:
         adapter_path.mkdir(parents=True, exist_ok=True)
         self.model.save_pretrained(str(adapter_path))
         self.tokenizer.save_pretrained(str(adapter_path))
-        print(f"LoRA adapter saved to: {adapter_path}")
+        log.info("LoRA adapter saved to: %s", adapter_path)
         return str(adapter_path)
 
     # ------------------------------------------------------------------
@@ -903,7 +905,7 @@ class QwenTrainer:
         meta_path = Path(output_dir) / "run_metadata.json"
         with open(meta_path, "w") as f:
             json.dump(metadata, f, indent=2)
-        print(f"Run metadata saved to: {meta_path}")
+        log.info("Run metadata saved to: %s", meta_path)
 
     # ------------------------------------------------------------------
     # run_full_pipeline — convenience entry-point for job_runner

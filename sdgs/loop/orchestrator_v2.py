@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import datetime
 import logging
+import time
 import uuid
 from dataclasses import asdict
 from pathlib import Path
@@ -101,9 +102,12 @@ class ClosedLoopOrchestrator:
         self._state.update_stage(loop_id, 0, Stage.BASELINE)
         logger.info("Cycle 0: BASELINE benchmark on %s", self._base_model_path)
 
+        t0 = time.time()
         baseline_result = run_benchmarks(self._base_model_path, suites, batch_size)
         baseline_scores = baseline_result["scores"]
         baseline_avg = compute_gate_score(baseline_scores)
+        logger.info("BASELINE completed in %.1fs -- average=%.2f, scores=%s",
+                     time.time() - t0, baseline_avg, baseline_scores)
         self._previous_average = baseline_avg
 
         baseline_record = CycleRecord(
@@ -153,6 +157,7 @@ class ClosedLoopOrchestrator:
                 return loop_id
 
             cycle_started = datetime.datetime.utcnow().isoformat()
+            cycle_t0 = time.time()
             logger.info("=== Cycle %d / %d ===", cycle, max_cycles)
 
             # Use seed dataset for cycle 1 if provided
@@ -165,6 +170,7 @@ class ClosedLoopOrchestrator:
             else:
                 # [1] TALLYING
                 self._state.update_stage(loop_id, cycle, Stage.TALLYING)
+                t0 = time.time()
                 failed_questions = [q for q in per_question if not q.get("passed")]
                 history = self._logger.get_cycle_history()
                 tally_metadata = run_tally(
@@ -177,22 +183,26 @@ class ClosedLoopOrchestrator:
                     log_dir=self._config.logging.log_dir,
                     history_window=self._config.tally.history_window,
                 )
-                logger.info("Tally: %d clusters, %d search queries",
+                logger.info("TALLYING completed in %.1fs -- %d clusters, %d search queries",
+                            time.time() - t0,
                             len(tally_metadata.get("clusters", [])),
                             len(tally_metadata.get("search_queries", [])))
 
                 # [2] RETRIEVING
                 self._state.update_stage(loop_id, cycle, Stage.RETRIEVING)
+                t0 = time.time()
                 papers = retrieve_papers(
                     tally_metadata,
                     sources=self._config.retrieval.sources,
                     max_papers_per_cluster=self._config.retrieval.max_papers_per_cluster,
                 )
                 papers = extract_paper_text(papers)
-                logger.info("Retrieved %d papers", len(papers))
+                logger.info("RETRIEVING completed in %.1fs -- %d papers from %s",
+                            time.time() - t0, len(papers), self._config.retrieval.sources)
 
                 # [3] CURATING
                 self._state.update_stage(loop_id, cycle, Stage.CURATING)
+                t0 = time.time()
                 verification_cfg = {
                     "citation_matching": self._config.curation.verification.citation_matching,
                     "min_entailment_ratio": self._config.curation.verification.entailment_min_ratio,
@@ -212,32 +222,40 @@ class ClosedLoopOrchestrator:
                 dataset_path = dataset_dir / "dataset.jsonl"
                 rejects_path = dataset_dir / self._config.curation.verification.rejects_log
                 save_dataset(accepted, dataset_path, rejects, rejects_path)
-                logger.info("Curated %d pairs (%d rejected)", len(accepted), len(rejects))
+                logger.info("CURATING completed in %.1fs -- %d accepted, %d rejected",
+                            time.time() - t0, len(accepted), len(rejects))
 
                 # Free curation model VRAM
                 unload_model(self._config.curation.model)
 
             # [4] TRAINING
             self._state.update_stage(loop_id, cycle, Stage.TRAINING)
+            t0 = time.time()
             adapter_path, training_loss = self._run_training(
                 str(dataset_path), cycle,
             )
-            logger.info("Training done: adapter=%s loss=%.4f", adapter_path, training_loss)
+            logger.info("TRAINING completed in %.1fs -- adapter=%s loss=%.4f",
+                        time.time() - t0, adapter_path, training_loss)
 
             # [5] MERGING
             self._state.update_stage(loop_id, cycle, Stage.MERGING)
+            t0 = time.time()
             self._current_version += 1
             merged_dir = self._checkpoint_dir / f"base-v{self._current_version}"
             self._run_merge(adapter_path, str(merged_dir))
             merged_model_path = str(merged_dir)
-            logger.info("Merged model at %s", merged_model_path)
+            logger.info("MERGING completed in %.1fs -- merged model at %s",
+                        time.time() - t0, merged_model_path)
 
             # [6] EVALUATING
             self._state.update_stage(loop_id, cycle, Stage.EVALUATING)
+            t0 = time.time()
             eval_result = run_benchmarks(merged_model_path, suites, batch_size)
             scores = eval_result["scores"]
             current_avg = compute_gate_score(scores)
             per_question = eval_result.get("per_question", [])
+            logger.info("EVALUATING completed in %.1fs -- average=%.2f, scores=%s",
+                        time.time() - t0, current_avg, scores)
             logger.info("Evaluation: average=%.2f (prev=%.2f)", current_avg, self._previous_average)
 
             # [7] GATING
@@ -264,6 +282,8 @@ class ClosedLoopOrchestrator:
                 merged_model_path = None
                 logger.info("Gate FAILED -- rolled back (consecutive=%d)",
                             self._consecutive_failures)
+
+            logger.info("=== Cycle %d completed in %.1fs ===", cycle, time.time() - cycle_t0)
 
             # Save cycle record
             cycle_record = CycleRecord(

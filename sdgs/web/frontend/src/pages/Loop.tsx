@@ -470,7 +470,7 @@ tally:
               {showYaml ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
               Generate YAML
             </button>
-            {showYaml && (
+            {showYaml && (<>
               <button
                 onClick={() => {
                   const yaml = generateYaml()
@@ -484,7 +484,26 @@ tally:
               >
                 Copy to Clipboard
               </button>
-            )}
+              <button
+                onClick={() => {
+                  const yaml = generateYaml()
+                  const blob = new Blob([yaml], { type: 'text/yaml' })
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = url
+                  a.download = 'training_config.yaml'
+                  a.click()
+                  URL.revokeObjectURL(url)
+                }}
+                style={{
+                  fontSize: 12, padding: '4px 12px', borderRadius: 8,
+                  background: 'rgba(139, 92, 246, 0.1)', border: '1px solid rgba(139, 92, 246, 0.2)',
+                  color: 'var(--accent-purple)', cursor: 'pointer', fontWeight: 500,
+                }}
+              >
+                Download YAML
+              </button>
+            </>)}
           </div>
           {showYaml && (
             <pre style={{
