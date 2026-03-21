@@ -740,8 +740,28 @@ class QwenTrainer:
 
     @staticmethod
     def _make_custom_loss(loss_fn_name: str, default_compute_loss):
-        """Return a compute_loss function that uses the specified loss."""
+        """Return a compute_loss function that uses the specified loss.
+
+        All PyTorch loss functions are supported. For losses that require
+        specific input shapes, logits are adapted accordingly.
+        """
         import torch.nn.functional as F
+
+        def _to_flat(shift_logits, shift_labels):
+            """Flatten logits and labels for standard loss functions."""
+            return shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1)
+
+        def _to_onehot(shift_labels, num_classes):
+            """Convert labels to one-hot float targets."""
+            return F.one_hot(shift_labels.clamp(min=0), num_classes=num_classes).float()
+
+        def _to_probs(shift_logits):
+            """Convert logits to probabilities."""
+            return F.softmax(shift_logits, dim=-1)
+
+        def _to_log_probs(shift_logits):
+            """Convert logits to log-probabilities."""
+            return F.log_softmax(shift_logits, dim=-1)
 
         def compute_loss(model, inputs, return_outputs=False, **kwargs):
             labels = inputs.pop("labels")
@@ -751,27 +771,94 @@ class QwenTrainer:
             # Shift for causal LM: predict next token
             shift_logits = logits[..., :-1, :].contiguous()
             shift_labels = labels[..., 1:].contiguous()
+            flat_logits, flat_labels = _to_flat(shift_logits, shift_labels)
+            num_classes = shift_logits.size(-1)
 
-            if loss_fn_name == "kl_div":
-                log_probs = F.log_softmax(shift_logits, dim=-1)
-                targets = F.one_hot(shift_labels.clamp(min=0), num_classes=shift_logits.size(-1)).float()
+            if loss_fn_name == "cross_entropy":
+                loss = F.cross_entropy(flat_logits, flat_labels)
+
+            elif loss_fn_name == "nll":
+                loss = F.nll_loss(_to_log_probs(shift_logits).view(-1, num_classes), flat_labels)
+
+            elif loss_fn_name == "kl_div":
+                log_probs = _to_log_probs(shift_logits)
+                targets = _to_onehot(shift_labels, num_classes)
                 loss = F.kl_div(log_probs, targets, reduction="batchmean")
+
             elif loss_fn_name == "focal":
-                alpha = 0.25
-                gamma = 2.0
-                ce = F.cross_entropy(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1), reduction="none")
+                alpha, gamma = 0.25, 2.0
+                ce = F.cross_entropy(flat_logits, flat_labels, reduction="none")
                 pt = torch.exp(-ce)
                 loss = (alpha * (1 - pt) ** gamma * ce).mean()
+
+            elif loss_fn_name == "bce_with_logits":
+                targets = _to_onehot(shift_labels, num_classes)
+                loss = F.binary_cross_entropy_with_logits(shift_logits, targets)
+
+            elif loss_fn_name == "bce":
+                probs = _to_probs(shift_logits)
+                targets = _to_onehot(shift_labels, num_classes)
+                loss = F.binary_cross_entropy(probs, targets)
+
+            elif loss_fn_name == "mse":
+                targets = _to_onehot(shift_labels, num_classes)
+                loss = F.mse_loss(shift_logits, targets)
+
+            elif loss_fn_name == "l1":
+                targets = _to_onehot(shift_labels, num_classes)
+                loss = F.l1_loss(shift_logits, targets)
+
             elif loss_fn_name == "smooth_l1":
-                # Treat logits as regression targets (experimental)
-                targets = F.one_hot(shift_labels.clamp(min=0), num_classes=shift_logits.size(-1)).float()
+                targets = _to_onehot(shift_labels, num_classes)
                 loss = F.smooth_l1_loss(shift_logits, targets)
-            elif loss_fn_name == "nll":
-                log_probs = F.log_softmax(shift_logits, dim=-1)
-                loss = F.nll_loss(log_probs.view(-1, log_probs.size(-1)), shift_labels.view(-1))
+
+            elif loss_fn_name == "huber":
+                targets = _to_onehot(shift_labels, num_classes)
+                loss = F.huber_loss(shift_logits, targets)
+
+            elif loss_fn_name == "cosine_embedding":
+                targets = _to_onehot(shift_labels, num_classes)
+                # cosine embedding loss expects +1/-1 labels
+                cos_labels = torch.ones(flat_logits.size(0), device=flat_logits.device)
+                loss = F.cosine_embedding_loss(flat_logits, _to_onehot(flat_labels, num_classes), cos_labels)
+
+            elif loss_fn_name == "soft_margin":
+                targets = _to_onehot(shift_labels, num_classes) * 2 - 1  # convert to -1/+1
+                loss = F.soft_margin_loss(shift_logits, targets)
+
+            elif loss_fn_name == "multi_margin":
+                loss = F.multi_margin_loss(flat_logits, flat_labels)
+
+            elif loss_fn_name == "multi_label_margin":
+                targets = _to_onehot(shift_labels, num_classes).long()
+                loss = F.multilabel_margin_loss(flat_logits, targets)
+
+            elif loss_fn_name == "multi_label_soft_margin":
+                targets = _to_onehot(shift_labels, num_classes)
+                loss = F.multilabel_soft_margin_loss(shift_logits, targets)
+
+            elif loss_fn_name == "hinge_embedding":
+                # Use CE-derived margin: correct class = +1, others = -1
+                targets = _to_onehot(shift_labels, num_classes) * 2 - 1
+                loss = F.hinge_embedding_loss(shift_logits, targets)
+
+            elif loss_fn_name == "poisson_nll":
+                targets = _to_onehot(shift_labels, num_classes)
+                loss = F.poisson_nll_loss(shift_logits, targets, log_input=True)
+
+            elif loss_fn_name == "gaussian_nll":
+                targets = _to_onehot(shift_labels, num_classes)
+                var = torch.ones_like(shift_logits)
+                loss = F.gaussian_nll_loss(shift_logits, targets, var)
+
+            elif loss_fn_name == "ctc":
+                log_probs = _to_log_probs(shift_logits).permute(1, 0, 2)  # (T, N, C)
+                input_lengths = torch.full((shift_logits.size(0),), shift_logits.size(1), dtype=torch.long, device=shift_logits.device)
+                target_lengths = torch.full((shift_labels.size(0),), shift_labels.size(1), dtype=torch.long, device=shift_labels.device)
+                loss = F.ctc_loss(log_probs, shift_labels, input_lengths, target_lengths, blank=0, zero_infinity=True)
+
             else:
-                # Fallback to standard cross entropy
-                loss = F.cross_entropy(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+                loss = F.cross_entropy(flat_logits, flat_labels)
 
             return (loss, outputs) if return_outputs else loss
 

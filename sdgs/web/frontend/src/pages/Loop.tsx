@@ -255,11 +255,25 @@ export default function Loop() {
               <div>
                 <label style={labelStyle}>Loss Function</label>
                 <select value={lossFunction} onChange={e => setLossFunction(e.target.value)} style={inputStyle}>
-                  <option value="cross_entropy">Cross Entropy</option>
+                  <option value="cross_entropy">CrossEntropyLoss</option>
+                  <option value="nll">NLLLoss</option>
                   <option value="focal">Focal Loss</option>
-                  <option value="kl_div">KL Divergence</option>
-                  <option value="nll">Negative Log Likelihood</option>
-                  <option value="smooth_l1">Smooth L1</option>
+                  <option value="kl_div">KLDivLoss</option>
+                  <option value="bce">BCELoss</option>
+                  <option value="bce_with_logits">BCEWithLogitsLoss</option>
+                  <option value="mse">MSELoss</option>
+                  <option value="l1">L1Loss</option>
+                  <option value="smooth_l1">SmoothL1Loss</option>
+                  <option value="huber">HuberLoss</option>
+                  <option value="cosine_embedding">CosineEmbeddingLoss</option>
+                  <option value="hinge_embedding">HingeEmbeddingLoss</option>
+                  <option value="soft_margin">SoftMarginLoss</option>
+                  <option value="multi_margin">MultiMarginLoss</option>
+                  <option value="multi_label_margin">MultiLabelMarginLoss</option>
+                  <option value="multi_label_soft_margin">MultiLabelSoftMarginLoss</option>
+                  <option value="poisson_nll">PoissonNLLLoss</option>
+                  <option value="gaussian_nll">GaussianNLLLoss</option>
+                  <option value="ctc">CTCLoss</option>
                 </select>
               </div>
               <div>
