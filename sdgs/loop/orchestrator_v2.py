@@ -357,58 +357,86 @@ class ClosedLoopOrchestrator:
     # ------------------------------------------------------------------
 
     def _run_training(self, dataset_path: str, cycle: int) -> tuple[Path, float]:
-        """Run QwenTrainer on the curated dataset.
+        """Run QwenTrainer in an isolated subprocess to fully release VRAM after.
 
         Returns:
             Tuple of (adapter_path, final_training_loss).
         """
-        import gc
-        import torch
-        from sdgs.web.engine.trainer import QwenTrainer
+        import json as _json
+        import multiprocessing
+        import tempfile
 
         output_dir = self._checkpoint_dir / f"training-cycle-{cycle}"
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        trainer = QwenTrainer(
-            dataset_path=dataset_path,
-            model_config={"model_name": self._base_model_path},
-            training_config={
-                "output_dir": str(output_dir),
-                "num_train_epochs": 1,
-            },
-        )
-        try:
+        results_file = tempfile.mktemp(suffix=".json", prefix="training_")
+
+        def _train_worker(
+            ds_path: str, model_name: str, out_dir: str, res_file: str,
+        ) -> None:
+            from sdgs.web.engine.trainer import QwenTrainer
+            trainer = QwenTrainer(
+                dataset_path=ds_path,
+                model_config={"model_name": model_name},
+                training_config={"output_dir": out_dir, "num_train_epochs": 1},
+            )
             trainer.load_model()
             trainer.prepare_dataset()
             stats = trainer.train()
-            adapter_path_str = trainer.save_adapter(str(output_dir))
-            training_loss = stats.get("training_loss", 0.0)
-        finally:
-            # Free training model from VRAM
-            del trainer
-            gc.collect()
-            torch.cuda.empty_cache()
-            logger.info("Training model freed from VRAM")
+            adapter_path_str = trainer.save_adapter(out_dir)
+            with open(res_file, "w") as f:
+                _json.dump({
+                    "adapter_path": adapter_path_str,
+                    "training_loss": stats.get("training_loss", 0.0),
+                }, f)
 
-        return Path(adapter_path_str), training_loss
+        ctx = multiprocessing.get_context("spawn")
+        proc = ctx.Process(
+            target=_train_worker,
+            args=(dataset_path, self._base_model_path, str(output_dir), results_file),
+            name="training-worker",
+        )
+        logger.info("Starting training subprocess")
+        proc.start()
+        proc.join()
+
+        if proc.exitcode != 0:
+            raise RuntimeError(f"Training subprocess exited with code {proc.exitcode}")
+
+        with open(results_file) as f:
+            results = _json.load(f)
+        Path(results_file).unlink(missing_ok=True)
+        logger.info("Training subprocess completed -- VRAM fully released")
+
+        return Path(results["adapter_path"]), results["training_loss"]
 
     def _run_merge(self, adapter_path: Path, output_dir: str) -> None:
-        """Merge LoRA adapter into the base model."""
-        import gc
-        import torch
-        from sdgs.web.engine.merge_convert import merge_lora
+        """Merge LoRA adapter in an isolated subprocess to fully release VRAM after."""
+        import multiprocessing
 
-        try:
+        def _merge_worker(
+            adp_path: str, base_model: str, out_dir: str,
+        ) -> None:
+            from sdgs.web.engine.merge_convert import merge_lora
             merge_lora(
-                adapter_path=str(adapter_path),
-                base_model=self._base_model_path,
-                output_dir=output_dir,
+                adapter_path=adp_path,
+                base_model=base_model,
+                output_dir=out_dir,
             )
-        finally:
-            # Free merge artifacts from VRAM
-            gc.collect()
-            torch.cuda.empty_cache()
-            logger.info("Merge model freed from VRAM")
+
+        ctx = multiprocessing.get_context("spawn")
+        proc = ctx.Process(
+            target=_merge_worker,
+            args=(str(adapter_path), self._base_model_path, output_dir),
+            name="merge-worker",
+        )
+        logger.info("Starting merge subprocess")
+        proc.start()
+        proc.join()
+
+        if proc.exitcode != 0:
+            raise RuntimeError(f"Merge subprocess exited with code {proc.exitcode}")
+        logger.info("Merge subprocess completed -- VRAM fully released")
 
     def _handle_fail_cap(
         self,
