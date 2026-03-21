@@ -65,15 +65,15 @@ def build_galaxy_data(db: Session, user_id: int) -> dict:
     # Fill remaining budget with orphan papers (most-cited first)
     remaining_budget = MAX_PAPERS - len(dataset_papers)
     if remaining_budget > 0:
-        orphan_query = (
-            db.query(Paper)
-            .filter(Paper.user_id == user_id)
-            .order_by(Paper.citation_count.desc())
-            .limit(remaining_budget)
-        )
+        orphan_query = db.query(Paper).filter(Paper.user_id == user_id)
         if dataset_paper_ids:
             orphan_query = orphan_query.filter(~Paper.id.in_(dataset_paper_ids))
-        orphan_papers = orphan_query.all()
+        orphan_papers = (
+            orphan_query
+            .order_by(Paper.citation_count.desc())
+            .limit(remaining_budget)
+            .all()
+        )
     else:
         orphan_papers = []
 
