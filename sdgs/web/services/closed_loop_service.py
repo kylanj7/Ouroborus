@@ -100,13 +100,28 @@ def _run_loop_subprocess(
     config_path: str | None,
     seed_dataset_path: str | None,
     mp_queue: multiprocessing.Queue,
+    parent_pid: int = 0,
 ) -> None:
     """Entry point for the closed-loop subprocess.
 
     Runs the orchestrator and sends events back to the parent via mp_queue.
+    If the parent server process dies, this subprocess exits too.
     """
     import logging as _logging
     from pathlib import Path as _Path
+
+    # Watchdog thread: exit if parent server dies
+    if parent_pid:
+        def _parent_watchdog():
+            while True:
+                import time
+                time.sleep(3)
+                try:
+                    os.kill(parent_pid, 0)  # check if parent is alive
+                except OSError:
+                    os._exit(1)  # parent is dead, force exit
+        watchdog = threading.Thread(target=_parent_watchdog, daemon=True, name="parent-watchdog")
+        watchdog.start()
 
     # Set up logging: console + file + SSE bridge
     log_dir = _Path("logs/loop")
@@ -224,7 +239,7 @@ def start_closed_loop(config_path: str | None = None, seed_dataset_path: str | N
 
     proc = ctx.Process(
         target=_run_loop_subprocess,
-        args=(loop_id, config_path, seed_dataset_path, mp_queue),
+        args=(loop_id, config_path, seed_dataset_path, mp_queue, os.getpid()),
         daemon=True,
         name=f"closed-loop-{loop_id}",
     )
@@ -239,16 +254,24 @@ def start_closed_loop(config_path: str | None = None, seed_dataset_path: str | N
     # Bridge thread: reads from mp_queue and pushes to the SSE queue
     def _bridge():
         global _active_loop_id, _active_process, _active_pid
+        log.info("[closed-loop:%s] Bridge thread started", loop_id)
         while True:
             try:
                 event = mp_queue.get(timeout=2.0)
-            except Exception:
+            except queue.Empty:
                 # Check if process is still alive
+                if not proc.is_alive():
+                    log.info("[closed-loop:%s] Bridge: subprocess exited", loop_id)
+                    break
+                continue
+            except Exception as exc:
+                log.error("[closed-loop:%s] Bridge: queue.get error: %s", loop_id, exc)
                 if not proc.is_alive():
                     break
                 continue
 
             if event is None:
+                log.info("[closed-loop:%s] Bridge: received sentinel, ending", loop_id)
                 break
 
             emit_cl_event(loop_id, event)
@@ -261,6 +284,7 @@ def start_closed_loop(config_path: str | None = None, seed_dataset_path: str | N
                 _active_process = None
                 _active_pid = None
         finish_cl_stream(loop_id)
+        log.info("[closed-loop:%s] Bridge thread finished", loop_id)
 
     threading.Thread(target=_bridge, daemon=True, name=f"cl-bridge-{loop_id}").start()
 
