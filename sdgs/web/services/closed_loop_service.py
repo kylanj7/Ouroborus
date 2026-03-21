@@ -148,6 +148,15 @@ def start_closed_loop(config_path: str | None = None, seed_dataset_path: str | N
 
         finally:
             sdgs_loop_logger.removeHandler(handler)
+            # Free GPU VRAM
+            try:
+                import gc
+                import torch
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except Exception:
+                pass
             with _cl_lock:
                 if _active_loop_id == loop_id:
                     _active_loop_id = None
@@ -189,6 +198,17 @@ def force_cancel_loop() -> str | None:
                 log.info("[closed-loop:%s] Killed thread %s", old_id, tid)
         except Exception as e:
             log.warning("[closed-loop:%s] Could not kill thread: %s", old_id, e)
+
+    # Free GPU VRAM
+    try:
+        import gc
+        import torch
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            log.info("[closed-loop] Cleared CUDA cache")
+    except Exception as e:
+        log.warning("[closed-loop] VRAM cleanup failed: %s", e)
 
     if old_id:
         log.info("[closed-loop:%s] Force-cancelled", old_id)
