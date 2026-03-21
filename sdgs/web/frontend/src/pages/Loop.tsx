@@ -31,6 +31,7 @@ export default function Loop() {
   const [minPairs, setMinPairs] = useState(1000)
   const [tallyModel, setTallyModel] = useState('gpt-oss:120b')
   const [seedDatasetId, setSeedDatasetId] = useState<number | null>(null)
+  const canStart = !isRunning && !store.loading && seedDatasetId !== null
   const [datasets, setDatasets] = useState<Dataset[]>([])
 
   useEffect(() => {
@@ -140,8 +141,8 @@ export default function Loop() {
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button
             onClick={() => { store.start(configPath, seedDatasetId); clear() }}
-            disabled={isRunning || store.loading}
-            style={btnStyle('start', isRunning || store.loading)}
+            disabled={!canStart}
+            style={btnStyle('start', !canStart)}
           >
             <Play size={16} /> Start
           </button>
@@ -252,13 +253,13 @@ export default function Loop() {
 
               {/* Seed Dataset */}
               <div style={{ gridColumn: '1 / -1' }}>
-                <label style={labelStyle}>Seed Dataset (optional -- used for cycle 1)</label>
+                <label style={labelStyle}>Seed Dataset</label>
                 <select
                   value={seedDatasetId ?? ''}
                   onChange={e => setSeedDatasetId(e.target.value ? Number(e.target.value) : null)}
                   style={inputStyle}
                 >
-                  <option value="">None -- generate from tally</option>
+                  <option value="">Select a dataset...</option>
                   {datasets.map(d => (
                     <option key={d.id} value={d.id}>
                       {d.name || d.topic} ({d.actual_size} QA pairs)
