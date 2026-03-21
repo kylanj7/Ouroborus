@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import logging
+import multiprocessing
+import os
 import queue
+import signal
 import threading
 import traceback
 from uuid import uuid4
@@ -17,8 +20,8 @@ _cl_queues: dict[str, queue.Queue] = {}
 _cl_logs: dict[str, list[dict]] = {}
 _cl_lock: threading.Lock = threading.Lock()
 _active_loop_id: str | None = None
-_cancel_event: threading.Event | None = None
-_active_thread: threading.Thread | None = None
+_active_process: multiprocessing.Process | None = None
+_active_pid: int | None = None
 
 # Per-loop incrementing event ID counter
 _cl_event_counters: dict[str, int] = {}
@@ -37,10 +40,7 @@ def init_cl_stream(loop_id: str) -> None:
 
 
 def emit_cl_event(loop_id: str, event: dict) -> None:
-    """Push an event to the closed-loop SSE queue and persistent log buffer.
-
-    Automatically assigns an incrementing ``id`` field to each event.
-    """
+    """Push an event to the closed-loop SSE queue and persistent log buffer."""
     with _cl_lock:
         counter = _cl_event_counters.get(loop_id, 0)
         event = {**event, "id": counter}
@@ -92,20 +92,90 @@ def get_active_loop_id() -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# Subprocess target
+# ---------------------------------------------------------------------------
+
+def _run_loop_subprocess(
+    loop_id: str,
+    config_path: str | None,
+    seed_dataset_path: str | None,
+    mp_queue: multiprocessing.Queue,
+) -> None:
+    """Entry point for the closed-loop subprocess.
+
+    Runs the orchestrator and sends events back to the parent via mp_queue.
+    """
+    import logging as _logging
+
+    _logging.basicConfig(
+        level=_logging.INFO,
+        format="%(asctime)s %(levelname)-8s [%(name)s] %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
+    # Custom log handler that sends events through the mp queue
+    class _MPLogHandler(_logging.Handler):
+        def __init__(self, lid: str, q: multiprocessing.Queue):
+            super().__init__()
+            self._lid = lid
+            self._q = q
+
+        def emit(self, record: _logging.LogRecord) -> None:
+            try:
+                message = self.format(record)
+            except Exception:
+                message = record.getMessage()
+
+            self._q.put({"type": "log", "data": message})
+
+            upper = message.upper()
+            stage_keywords = {
+                "BASELINE": "baseline", "TALLYING": "tallying",
+                "RETRIEVING": "retrieving", "CURATING": "curating",
+                "TRAINING": "training", "MERGING": "merging",
+                "EVALUATING": "evaluating", "GATING": "gating",
+            }
+            for keyword, stage_value in stage_keywords.items():
+                if keyword in upper:
+                    self._q.put({"type": "stage", "data": stage_value})
+                    break
+
+    handler = _MPLogHandler(loop_id, mp_queue)
+    sdgs_loop_logger = _logging.getLogger("sdgs.loop")
+    sdgs_loop_logger.addHandler(handler)
+
+    try:
+        from sdgs.loop.config_v2 import load_closed_loop_config
+        from sdgs.loop.orchestrator_v2 import ClosedLoopOrchestrator
+
+        mp_queue.put({"type": "status", "data": "running"})
+        config = load_closed_loop_config(config_path)
+        orchestrator = ClosedLoopOrchestrator(config=config, seed_dataset_path=seed_dataset_path)
+        orchestrator.run(loop_id=loop_id)
+        mp_queue.put({"type": "status", "data": "completed"})
+
+    except Exception as exc:
+        tb = traceback.format_exc()
+        print(f"[closed-loop:{loop_id}] CRASH:\n{tb}", flush=True)
+        mp_queue.put({"type": "error", "data": str(exc)})
+        mp_queue.put({"type": "log", "data": f"ERROR: {tb}"})
+        mp_queue.put({"type": "status", "data": "failed"})
+
+    finally:
+        sdgs_loop_logger.removeHandler(handler)
+        mp_queue.put(None)  # sentinel
+
+
+# ---------------------------------------------------------------------------
 # Orchestrator lifecycle
 # ---------------------------------------------------------------------------
 
 def start_closed_loop(config_path: str | None = None, seed_dataset_path: str | None = None) -> str:
-    """Start a new closed-loop run in a background thread.
+    """Start a new closed-loop run in a subprocess.
 
     Raises RuntimeError if a loop is already active.
-
-    Returns:
-        The generated loop_id for the new run.
     """
-    global _active_loop_id
-
-    global _cancel_event
+    global _active_loop_id, _active_process, _active_pid
 
     with _cl_lock:
         if _active_loop_id is not None:
@@ -114,119 +184,94 @@ def start_closed_loop(config_path: str | None = None, seed_dataset_path: str | N
             )
         loop_id = f"cl-{uuid4().hex[:8]}"
         _active_loop_id = loop_id
-        _cancel_event = threading.Event()
 
     init_cl_stream(loop_id)
-    log.info("[closed-loop:%s] Starting background orchestrator thread", loop_id)
+    log.info("[closed-loop:%s] Starting background orchestrator subprocess", loop_id)
 
-    def _run() -> None:
-        global _active_loop_id
+    # Create a multiprocessing queue for events from the subprocess
+    mp_queue: multiprocessing.Queue = multiprocessing.Queue()
 
-        from sdgs.loop.config_v2 import load_closed_loop_config
-        from sdgs.loop.orchestrator_v2 import ClosedLoopOrchestrator
+    proc = multiprocessing.Process(
+        target=_run_loop_subprocess,
+        args=(loop_id, config_path, seed_dataset_path, mp_queue),
+        daemon=True,
+        name=f"closed-loop-{loop_id}",
+    )
+    proc.start()
 
-        handler = _SSELogHandler(loop_id)
-        sdgs_loop_logger = logging.getLogger("sdgs.loop")
-        sdgs_loop_logger.addHandler(handler)
+    with _cl_lock:
+        _active_process = proc
+        _active_pid = proc.pid
 
-        try:
-            emit_cl_event(loop_id, {"type": "status", "data": "running"})
-            config = load_closed_loop_config(config_path)
-            orchestrator = ClosedLoopOrchestrator(config=config, seed_dataset_path=seed_dataset_path)
-            orchestrator.run(loop_id=loop_id)
-            emit_cl_event(loop_id, {"type": "status", "data": "completed"})
-            log.info("[closed-loop:%s] Orchestrator finished", loop_id)
+    log.info("[closed-loop:%s] Subprocess PID=%s", loop_id, proc.pid)
 
-        except Exception as exc:
-            tb = traceback.format_exc()
-            import sys
-            print(f"[closed-loop:{loop_id}] CRASH:\n{tb}", file=sys.stderr, flush=True)
-            log.error("[closed-loop:%s] Orchestrator failed: %s\n%s", loop_id, exc, tb)
-            emit_cl_event(loop_id, {"type": "error", "data": str(exc)})
-            emit_cl_event(loop_id, {"type": "log", "message": f"ERROR: {tb}"})
-            emit_cl_event(loop_id, {"type": "status", "data": "failed"})
-
-        finally:
-            sdgs_loop_logger.removeHandler(handler)
-            # Free GPU VRAM
+    # Bridge thread: reads from mp_queue and pushes to the SSE queue
+    def _bridge():
+        global _active_loop_id, _active_process, _active_pid
+        while True:
             try:
-                import gc
-                import torch
-                gc.collect()
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
+                event = mp_queue.get(timeout=2.0)
             except Exception:
-                pass
-            with _cl_lock:
-                if _active_loop_id == loop_id:
-                    _active_loop_id = None
-                    _cancel_event = None
-            finish_cl_stream(loop_id)
+                # Check if process is still alive
+                if not proc.is_alive():
+                    break
+                continue
 
-    global _active_thread
-    thread = threading.Thread(target=_run, name=f"closed-loop-{loop_id}", daemon=True)
-    thread.start()
-    _active_thread = thread
+            if event is None:
+                break
+
+            emit_cl_event(loop_id, event)
+
+        # Cleanup
+        proc.join(timeout=5)
+        with _cl_lock:
+            if _active_loop_id == loop_id:
+                _active_loop_id = None
+                _active_process = None
+                _active_pid = None
+        finish_cl_stream(loop_id)
+
+    threading.Thread(target=_bridge, daemon=True, name=f"cl-bridge-{loop_id}").start()
+
     return loop_id
 
 
 def force_cancel_loop() -> str | None:
-    """Force-cancel the active loop by killing the thread and clearing state."""
-    global _active_loop_id, _cancel_event, _active_thread
-    import ctypes
+    """Force-cancel the active loop by killing the subprocess."""
+    global _active_loop_id, _active_process, _active_pid
 
     with _cl_lock:
         old_id = _active_loop_id
-        thread = _active_thread
-        if _cancel_event is not None:
-            _cancel_event.set()
+        proc = _active_process
+        pid = _active_pid
         _active_loop_id = None
-        _cancel_event = None
-        _active_thread = None
+        _active_process = None
+        _active_pid = None
 
-    # Force-raise SystemExit in the thread to kill it
-    if thread is not None and thread.is_alive():
+    # Kill the subprocess and all its children
+    if pid is not None:
         try:
-            tid = thread.ident
-            if tid is not None:
-                res = ctypes.pythonapi.PyThreadState_SetAsyncExc(
-                    ctypes.c_ulong(tid), ctypes.py_object(SystemExit)
-                )
-                if res > 1:
-                    # Reset if it affected more than one thread
-                    ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(tid), None)
-                log.info("[closed-loop:%s] Killed thread %s", old_id, tid)
+            os.kill(pid, signal.SIGKILL)
+            log.info("[closed-loop:%s] Killed subprocess PID=%s", old_id, pid)
+        except ProcessLookupError:
+            log.info("[closed-loop:%s] Subprocess PID=%s already dead", old_id, pid)
         except Exception as e:
-            log.warning("[closed-loop:%s] Could not kill thread: %s", old_id, e)
+            log.warning("[closed-loop:%s] Could not kill PID=%s: %s", old_id, pid, e)
 
-    # Free GPU VRAM
-    try:
-        import gc
-        import torch
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            log.info("[closed-loop] Cleared CUDA cache")
-    except Exception as e:
-        log.warning("[closed-loop] VRAM cleanup failed: %s", e)
+    if proc is not None:
+        proc.join(timeout=3)
 
     if old_id:
         log.info("[closed-loop:%s] Force-cancelled", old_id)
         emit_cl_event(old_id, {"type": "status", "data": "cancelled"})
-        emit_cl_event(old_id, {"type": "log", "message": "Force-cancelled by user"})
+        emit_cl_event(old_id, {"type": "log", "data": "Force-cancelled by user"})
         finish_cl_stream(old_id)
 
     return old_id
 
 
 def stop_closed_loop() -> str | None:
-    """Request a stop on the currently active closed-loop run.
-
-    Uses LoopStateStore to find the active loop and calls request_stop().
-
-    Returns:
-        The loop_id that was stopped, or None if no active loop was found.
-    """
+    """Request a graceful stop of the currently active closed-loop run."""
     from sdgs.loop.state_v2 import LoopStateStore
 
     store = LoopStateStore()
@@ -242,10 +287,9 @@ def stop_closed_loop() -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Private: SSE log handler
+# Private: SSE log handler (kept for backward compat but no longer primary)
 # ---------------------------------------------------------------------------
 
-# Stage keyword patterns from orchestrator log messages
 _STAGE_KEYWORDS: dict[str, str] = {
     "BASELINE": "baseline",
     "TALLYING": "tallying",
@@ -261,9 +305,6 @@ _STAGE_KEYWORDS: dict[str, str] = {
 class _SSELogHandler(logging.Handler):
     """Logging handler that captures records from the ``sdgs.loop`` logger
     and re-emits them as SSE events via :func:`emit_cl_event`.
-
-    Detects stage-related log messages and emits an additional ``stage``
-    event when a stage transition is identified.
     """
 
     def __init__(self, loop_id: str) -> None:
@@ -278,7 +319,6 @@ class _SSELogHandler(logging.Handler):
 
         emit_cl_event(self._loop_id, {"type": "log", "data": message})
 
-        # Detect stage transitions by scanning the formatted message
         upper = message.upper()
         for keyword, stage_value in _STAGE_KEYWORDS.items():
             if keyword in upper:
