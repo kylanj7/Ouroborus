@@ -109,20 +109,14 @@ async def cancel_loop(
 ):
     """Force-cancel any active or stale closed-loop run.
 
-    Clears the in-memory active loop ID and marks any running loop
-    in the state store as failed. Use this when a loop is stuck from
-    a previous server session.
+    Sets the cancel event to interrupt the running thread, clears
+    the in-memory state, and marks the loop as failed in the state store.
     """
-    from ..services.closed_loop_service import _cl_lock, _active_loop_id as _old_id
-    import sdgs.web.services.closed_loop_service as _cls
+    from ..services.closed_loop_service import force_cancel_loop
 
-    old_id = get_active_loop_id()
+    old_id = force_cancel_loop()
 
-    # Clear in-memory state
-    with _cl_lock:
-        _cls._active_loop_id = None
-
-    # Mark any running loop in the state store as failed
+    # Also mark in the state store
     if old_id:
         try:
             state = _state_store.get_loop(old_id)

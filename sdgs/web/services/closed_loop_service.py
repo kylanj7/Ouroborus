@@ -17,6 +17,7 @@ _cl_queues: dict[str, queue.Queue] = {}
 _cl_logs: dict[str, list[dict]] = {}
 _cl_lock: threading.Lock = threading.Lock()
 _active_loop_id: str | None = None
+_cancel_event: threading.Event | None = None
 
 # Per-loop incrementing event ID counter
 _cl_event_counters: dict[str, int] = {}
@@ -103,6 +104,8 @@ def start_closed_loop(config_path: str | None = None) -> str:
     """
     global _active_loop_id
 
+    global _cancel_event
+
     with _cl_lock:
         if _active_loop_id is not None:
             raise RuntimeError(
@@ -110,6 +113,7 @@ def start_closed_loop(config_path: str | None = None) -> str:
             )
         loop_id = f"cl-{uuid4().hex[:8]}"
         _active_loop_id = loop_id
+        _cancel_event = threading.Event()
 
     init_cl_stream(loop_id)
     log.info("[closed-loop:%s] Starting background orchestrator thread", loop_id)
@@ -146,11 +150,32 @@ def start_closed_loop(config_path: str | None = None) -> str:
             with _cl_lock:
                 if _active_loop_id == loop_id:
                     _active_loop_id = None
+                    _cancel_event = None
             finish_cl_stream(loop_id)
 
     thread = threading.Thread(target=_run, name=f"closed-loop-{loop_id}", daemon=True)
     thread.start()
     return loop_id
+
+
+def force_cancel_loop() -> str | None:
+    """Force-cancel the active loop by setting the cancel event and clearing state."""
+    global _active_loop_id, _cancel_event
+
+    with _cl_lock:
+        old_id = _active_loop_id
+        if _cancel_event is not None:
+            _cancel_event.set()
+        _active_loop_id = None
+        _cancel_event = None
+
+    if old_id:
+        log.info("[closed-loop:%s] Force-cancelled", old_id)
+        emit_cl_event(old_id, {"type": "status", "data": "cancelled"})
+        emit_cl_event(old_id, {"type": "log", "message": "Force-cancelled by user"})
+        finish_cl_stream(old_id)
+
+    return old_id
 
 
 def stop_closed_loop() -> str | None:
