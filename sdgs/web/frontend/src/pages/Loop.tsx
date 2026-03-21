@@ -33,6 +33,7 @@ export default function Loop() {
   const [labelSmoothing, setLabelSmoothing] = useState(0.0)
   const [optimizer, setOptimizer] = useState('adamw_8bit')
   const [lrScheduler, setLrScheduler] = useState('cosine')
+  const [weightDecay, setWeightDecay] = useState(0.1)
   const [tallyModel, setTallyModel] = useState('gpt-oss:120b')
   const [seedDatasetId, setSeedDatasetId] = useState<number | null>(null)
   const [datasets, setDatasets] = useState<Dataset[]>([])
@@ -339,6 +340,10 @@ export default function Loop() {
                   <option value="inverse_sqrt">Inverse Sqrt</option>
                   <option value="reduce_lr_on_plateau">Reduce on Plateau</option>
                 </select>
+              </div>
+              <div>
+                <label style={labelStyle}>Weight Decay</label>
+                <input type="number" step="0.01" min="0" max="1" value={weightDecay} onChange={e => setWeightDecay(Number(e.target.value))} style={inputStyle} />
               </div>
 
               {/* Seed Dataset */}
