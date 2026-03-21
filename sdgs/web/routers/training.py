@@ -471,6 +471,11 @@ def start_training(
         "max_steps": req.max_steps,
         "loss_function": req.loss_function,
         "label_smoothing_factor": req.label_smoothing,
+        "optim": req.optimizer,
+        "lr_scheduler_type": req.lr_scheduler,
+        "weight_decay": req.weight_decay,
+        "warmup_steps": req.warmup_steps,
+        "max_grad_norm": req.max_grad_norm,
     }
 
     # Capture for closure

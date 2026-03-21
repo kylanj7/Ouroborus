@@ -51,6 +51,11 @@ export default function StartTraining() {
   const [maxSteps, setMaxSteps] = useState(-1)
   const [lossFunction, setLossFunction] = useState('cross_entropy')
   const [labelSmoothing, setLabelSmoothing] = useState(0.0)
+  const [optimizer, setOptimizer] = useState('adamw_8bit')
+  const [lrScheduler, setLrScheduler] = useState('cosine')
+  const [weightDecay, setWeightDecay] = useState(0.1)
+  const [warmupSteps, setWarmupSteps] = useState(100)
+  const [maxGradNorm, setMaxGradNorm] = useState(0.3)
   const [checkpoints, setCheckpoints] = useState<ArtifactEntry[]>([])
   const [resumeCheckpoint, setResumeCheckpoint] = useState('')
   const [customCheckpoint, setCustomCheckpoint] = useState(false)
@@ -139,6 +144,11 @@ export default function StartTraining() {
             max_steps: maxSteps,
             loss_function: lossFunction,
             label_smoothing: labelSmoothing,
+            optimizer: optimizer,
+            lr_scheduler: lrScheduler,
+            weight_decay: weightDecay,
+            warmup_steps: warmupSteps,
+            max_grad_norm: maxGradNorm,
             resume_from_checkpoint: resumeCheckpoint.trim() || undefined,
           }
       const run = await startTraining(payload)
@@ -634,6 +644,92 @@ export default function StartTraining() {
                     onChange={(e) => setLabelSmoothing(parseFloat(e.target.value) || 0)}
                     disabled={submitting}
                   />
+                </div>
+              </div>
+              <div style={{ marginTop: '12px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
+                <div>
+                  <label>Optimizer</label>
+                  <select value={optimizer} onChange={(e) => setOptimizer(e.target.value)} disabled={submitting}>
+                    <optgroup label="AdamW">
+                      <option value="adamw_torch">adamw_torch</option>
+                      <option value="adamw_torch_fused">adamw_torch_fused</option>
+                      <option value="adamw_8bit">adamw_8bit</option>
+                      <option value="adamw_bnb_8bit">adamw_bnb_8bit</option>
+                      <option value="adamw_torch_4bit">adamw_torch_4bit</option>
+                      <option value="adamw_torch_8bit">adamw_torch_8bit</option>
+                      <option value="paged_adamw_8bit">paged_adamw_8bit</option>
+                      <option value="paged_adamw_32bit">paged_adamw_32bit</option>
+                      <option value="stable_adamw">stable_adamw</option>
+                    </optgroup>
+                    <optgroup label="SGD / Classical">
+                      <option value="sgd">SGD</option>
+                      <option value="adagrad">Adagrad</option>
+                      <option value="rmsprop">RMSProp</option>
+                      <option value="rmsprop_bnb">rmsprop_bnb</option>
+                      <option value="rmsprop_bnb_8bit">rmsprop_bnb_8bit</option>
+                      <option value="rmsprop_bnb_32bit">rmsprop_bnb_32bit</option>
+                      <option value="adafactor">Adafactor</option>
+                    </optgroup>
+                    <optgroup label="Lion">
+                      <option value="lion_8bit">lion_8bit</option>
+                      <option value="lion_32bit">lion_32bit</option>
+                      <option value="paged_lion_8bit">paged_lion_8bit</option>
+                      <option value="paged_lion_32bit">paged_lion_32bit</option>
+                    </optgroup>
+                    <optgroup label="AdEMAMix">
+                      <option value="ademamix">ademamix</option>
+                      <option value="ademamix_8bit">ademamix_8bit</option>
+                      <option value="paged_ademamix_8bit">paged_ademamix_8bit</option>
+                      <option value="paged_ademamix_32bit">paged_ademamix_32bit</option>
+                    </optgroup>
+                    <optgroup label="GaLore">
+                      <option value="galore_adamw">galore_adamw</option>
+                      <option value="galore_adamw_8bit">galore_adamw_8bit</option>
+                      <option value="galore_adafactor">galore_adafactor</option>
+                      <option value="galore_adamw_layerwise">galore_adamw_layerwise</option>
+                      <option value="galore_adamw_8bit_layerwise">galore_adamw_8bit_layerwise</option>
+                      <option value="galore_adafactor_layerwise">galore_adafactor_layerwise</option>
+                    </optgroup>
+                    <optgroup label="Schedule-Free">
+                      <option value="schedule_free_adamw">schedule_free_adamw</option>
+                      <option value="schedule_free_sgd">schedule_free_sgd</option>
+                      <option value="schedule_free_radam">schedule_free_radam</option>
+                    </optgroup>
+                    <optgroup label="Other">
+                      <option value="lomo">LOMO</option>
+                      <option value="adalomo">AdaLOMO</option>
+                      <option value="grokadamw">GrokAdamW</option>
+                      <option value="apollo_adamw">apollo_adamw</option>
+                      <option value="apollo_adamw_layerwise">apollo_adamw_layerwise</option>
+                    </optgroup>
+                  </select>
+                </div>
+                <div>
+                  <label>LR Scheduler</label>
+                  <select value={lrScheduler} onChange={(e) => setLrScheduler(e.target.value)} disabled={submitting}>
+                    <option value="cosine">Cosine</option>
+                    <option value="linear">Linear</option>
+                    <option value="constant">Constant</option>
+                    <option value="constant_with_warmup">Constant + Warmup</option>
+                    <option value="cosine_with_restarts">Cosine + Restarts</option>
+                    <option value="polynomial">Polynomial</option>
+                    <option value="inverse_sqrt">Inverse Sqrt</option>
+                    <option value="reduce_lr_on_plateau">Reduce on Plateau</option>
+                  </select>
+                </div>
+                <div>
+                  <label>Weight Decay</label>
+                  <input type="number" step="0.01" min="0" max="1" value={weightDecay} onChange={(e) => setWeightDecay(parseFloat(e.target.value) || 0)} disabled={submitting} />
+                </div>
+              </div>
+              <div style={{ marginTop: '12px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
+                <div>
+                  <label>Warmup Steps</label>
+                  <input type="number" min="0" value={warmupSteps} onChange={(e) => setWarmupSteps(parseInt(e.target.value) || 0)} disabled={submitting} />
+                </div>
+                <div>
+                  <label>Max Grad Norm</label>
+                  <input type="number" step="0.1" min="0" value={maxGradNorm} onChange={(e) => setMaxGradNorm(parseFloat(e.target.value) || 0)} disabled={submitting} />
                 </div>
               </div>
               <div style={{ marginTop: '12px' }}>

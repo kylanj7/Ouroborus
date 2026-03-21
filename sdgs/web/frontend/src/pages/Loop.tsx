@@ -31,6 +31,8 @@ export default function Loop() {
   const [minPairs, setMinPairs] = useState(1000)
   const [lossFunction, setLossFunction] = useState('cross_entropy')
   const [labelSmoothing, setLabelSmoothing] = useState(0.0)
+  const [optimizer, setOptimizer] = useState('adamw_8bit')
+  const [lrScheduler, setLrScheduler] = useState('cosine')
   const [tallyModel, setTallyModel] = useState('gpt-oss:120b')
   const [seedDatasetId, setSeedDatasetId] = useState<number | null>(null)
   const [datasets, setDatasets] = useState<Dataset[]>([])
@@ -279,6 +281,64 @@ export default function Loop() {
               <div>
                 <label style={labelStyle}>Label Smoothing</label>
                 <input type="number" step="0.01" min="0" max="0.5" value={labelSmoothing} onChange={e => setLabelSmoothing(Number(e.target.value))} style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>Optimizer</label>
+                <select value={optimizer} onChange={e => setOptimizer(e.target.value)} style={inputStyle}>
+                  <optgroup label="AdamW">
+                    <option value="adamw_torch">adamw_torch</option>
+                    <option value="adamw_torch_fused">adamw_torch_fused</option>
+                    <option value="adamw_8bit">adamw_8bit</option>
+                    <option value="adamw_bnb_8bit">adamw_bnb_8bit</option>
+                    <option value="adamw_torch_4bit">adamw_torch_4bit</option>
+                    <option value="paged_adamw_8bit">paged_adamw_8bit</option>
+                    <option value="paged_adamw_32bit">paged_adamw_32bit</option>
+                    <option value="stable_adamw">stable_adamw</option>
+                  </optgroup>
+                  <optgroup label="SGD / Classical">
+                    <option value="sgd">SGD</option>
+                    <option value="adagrad">Adagrad</option>
+                    <option value="rmsprop">RMSProp</option>
+                    <option value="adafactor">Adafactor</option>
+                  </optgroup>
+                  <optgroup label="Lion">
+                    <option value="lion_8bit">lion_8bit</option>
+                    <option value="lion_32bit">lion_32bit</option>
+                    <option value="paged_lion_8bit">paged_lion_8bit</option>
+                    <option value="paged_lion_32bit">paged_lion_32bit</option>
+                  </optgroup>
+                  <optgroup label="AdEMAMix">
+                    <option value="ademamix">ademamix</option>
+                    <option value="ademamix_8bit">ademamix_8bit</option>
+                  </optgroup>
+                  <optgroup label="GaLore">
+                    <option value="galore_adamw">galore_adamw</option>
+                    <option value="galore_adamw_8bit">galore_adamw_8bit</option>
+                    <option value="galore_adafactor">galore_adafactor</option>
+                  </optgroup>
+                  <optgroup label="Schedule-Free">
+                    <option value="schedule_free_adamw">schedule_free_adamw</option>
+                    <option value="schedule_free_sgd">schedule_free_sgd</option>
+                  </optgroup>
+                  <optgroup label="Other">
+                    <option value="lomo">LOMO</option>
+                    <option value="adalomo">AdaLOMO</option>
+                    <option value="grokadamw">GrokAdamW</option>
+                  </optgroup>
+                </select>
+              </div>
+              <div>
+                <label style={labelStyle}>LR Scheduler</label>
+                <select value={lrScheduler} onChange={e => setLrScheduler(e.target.value)} style={inputStyle}>
+                  <option value="cosine">Cosine</option>
+                  <option value="linear">Linear</option>
+                  <option value="constant">Constant</option>
+                  <option value="constant_with_warmup">Constant + Warmup</option>
+                  <option value="cosine_with_restarts">Cosine + Restarts</option>
+                  <option value="polynomial">Polynomial</option>
+                  <option value="inverse_sqrt">Inverse Sqrt</option>
+                  <option value="reduce_lr_on_plateau">Reduce on Plateau</option>
+                </select>
               </div>
 
               {/* Seed Dataset */}

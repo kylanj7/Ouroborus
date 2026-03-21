@@ -281,6 +281,11 @@ class StartTrainingRequest(BaseModel):
     max_steps: int = -1
     loss_function: str = "cross_entropy"
     label_smoothing: float = 0.0
+    optimizer: str = "adamw_8bit"
+    lr_scheduler: str = "cosine"
+    weight_decay: float = 0.1
+    warmup_steps: int = 100
+    max_grad_norm: float = 0.3
     # Config-driven mode: specify YAML config names instead of individual params
     dataset_config_name: str | None = None   # e.g. "quantum"
     model_config_name: str | None = None     # e.g. "qwen2.5-14b-instruct"

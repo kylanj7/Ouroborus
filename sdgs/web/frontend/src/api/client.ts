@@ -575,6 +575,11 @@ export interface StartTrainingRequest {
   max_steps?: number
   loss_function?: string
   label_smoothing?: number
+  optimizer?: string
+  lr_scheduler?: string
+  weight_decay?: number
+  warmup_steps?: number
+  max_grad_norm?: number
   dataset_config_name?: string | null
   model_config_name?: string | null
   training_config_name?: string | null
