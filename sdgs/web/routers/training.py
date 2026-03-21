@@ -47,7 +47,6 @@ router = APIRouter()
 @router.post("/upload-yaml")
 async def upload_training_yaml(
     file: UploadFile = File(...),
-    current_user: CurrentUser = Depends(get_current_user),
 ):
     """Upload a YAML training config file.
 
@@ -500,7 +499,14 @@ def start_training(
         "model_name": req.base_model,
         "size": req.model_size,
         "max_seq_length": req.max_seq_length,
-        "lora": {"r": req.lora_rank, "lora_alpha": req.lora_alpha},
+        "quant_type": req.quant_type,
+        "lora": {
+            "r": req.lora_rank,
+            "lora_alpha": req.lora_alpha,
+            "lora_dropout": req.lora_dropout,
+            "use_rslora": req.use_rslora,
+            "target_modules": req.target_modules,
+        },
     }
     training_config = yaml_training_config or {
         "learning_rate": req.learning_rate,
@@ -514,7 +520,12 @@ def start_training(
         "lr_scheduler_type": req.lr_scheduler,
         "weight_decay": req.weight_decay,
         "warmup_steps": req.warmup_steps,
+        "warmup_ratio": req.warmup_ratio,
         "max_grad_norm": req.max_grad_norm,
+        "neftune_noise_alpha": req.neftune_noise_alpha,
+        "logging_steps": req.logging_steps,
+        "eval_strategy": "steps",
+        "eval_steps": req.eval_steps,
     }
 
     # Capture for closure
@@ -644,7 +655,10 @@ def retry_training_run(
         "model_name": run.base_model,
         "size": run.model_size,
         "max_seq_length": run.max_seq_length or 2048,
-        "lora": {"r": run.lora_rank, "lora_alpha": run.lora_alpha},
+        "lora": {
+            "r": run.lora_rank,
+            "lora_alpha": run.lora_alpha,
+        },
     }
     training_config = {
         "learning_rate": run.learning_rate,

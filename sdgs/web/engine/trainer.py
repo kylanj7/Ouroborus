@@ -345,6 +345,7 @@ DEFAULT_MODEL_CONFIG: Dict[str, Any] = {
         "r": 64,
         "lora_alpha": 128,
         "lora_dropout": 0.1,
+        "use_rslora": False,
         "bias": "none",
         "task_type": "CAUSAL_LM",
         "target_modules": [
@@ -447,20 +448,28 @@ class QwenTrainer:
 
         log.info("Loading model: %s", model_name)
 
+        # Resolve quantization type from high-level quant_type or detailed config
+        quant_type = quant_cfg.get("quant_type", mcfg.get("quant_type", "nf4"))
+
         compute_dtype = (
             torch.bfloat16
             if quant_cfg.get("bnb_4bit_compute_dtype") == "bfloat16"
             else torch.float16
         )
 
-        bnb_config = BitsAndBytesConfig(
-            load_in_4bit=quant_cfg.get("load_in_4bit", True),
-            bnb_4bit_quant_type=quant_cfg.get("bnb_4bit_quant_type", "nf4"),
-            bnb_4bit_compute_dtype=compute_dtype,
-            bnb_4bit_use_double_quant=quant_cfg.get(
-                "bnb_4bit_use_double_quant", True
-            ),
-        )
+        bnb_config = None
+        if quant_type == "int8":
+            bnb_config = BitsAndBytesConfig(load_in_8bit=True)
+        elif quant_type in ("nf4", "fp4"):
+            bnb_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type=quant_type,
+                bnb_4bit_compute_dtype=compute_dtype,
+                bnb_4bit_use_double_quant=quant_cfg.get(
+                    "bnb_4bit_use_double_quant", True
+                ),
+            )
+        # quant_type == "none" -> bnb_config stays None (full precision)
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             model_name,
@@ -470,17 +479,22 @@ class QwenTrainer:
         self.tokenizer.padding_side = tok_cfg.get("padding_side", "right")
         log.info("Tokenizer loaded")
 
-        self.model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            quantization_config=bnb_config,
+        model_kwargs: Dict[str, Any] = dict(
             device_map="auto",
             trust_remote_code=True,
+        )
+        if bnb_config is not None:
+            model_kwargs["quantization_config"] = bnb_config
+
+        self.model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            **model_kwargs,
         )
         log.info("Model loaded")
 
         self.model = prepare_model_for_kbit_training(self.model)
 
-        peft_config = LoraConfig(
+        peft_kwargs = dict(
             r=lora_cfg.get("r", 16),
             lora_alpha=lora_cfg.get("lora_alpha", 16),
             lora_dropout=lora_cfg.get("lora_dropout", 0),
@@ -499,6 +513,9 @@ class QwenTrainer:
                 ],
             ),
         )
+        if lora_cfg.get("use_rslora", False):
+            peft_kwargs["use_rslora"] = True
+        peft_config = LoraConfig(**peft_kwargs)
 
         self.model = get_peft_model(self.model, peft_config)
         self.model.print_trainable_parameters()
@@ -677,10 +694,15 @@ class QwenTrainer:
             tcfg.get("eval_steps", 25) if eval_strategy == "steps" else None
         )
 
+        # Use warmup_ratio if provided (overrides warmup_steps)
+        warmup_ratio = tcfg.get("warmup_ratio", 0.0)
+        warmup_steps = 0 if warmup_ratio > 0 else tcfg.get("warmup_steps", 10)
+
         training_args = TrainingArguments(
             per_device_train_batch_size=tcfg.get("per_device_train_batch_size", 4),
             gradient_accumulation_steps=tcfg.get("gradient_accumulation_steps", 4),
-            warmup_steps=tcfg.get("warmup_steps", 10),
+            warmup_steps=warmup_steps,
+            warmup_ratio=warmup_ratio,
             num_train_epochs=tcfg.get("num_train_epochs", 1),
             max_steps=tcfg.get("max_steps", -1),
             learning_rate=tcfg.get("learning_rate", 5e-5),
@@ -708,13 +730,19 @@ class QwenTrainer:
             callbacks.append(MetricsCallback(self.on_metric, self.knobs))
 
         loss_fn_name = tcfg.get("loss_function", "cross_entropy")
-        trainer = SFTTrainer(
+
+        sft_kwargs: Dict[str, Any] = dict(
             model=self.model,
             train_dataset=self.train_dataset,
             eval_dataset=self.val_dataset,
             args=training_args,
             callbacks=callbacks or None,
         )
+        neftune_alpha = tcfg.get("neftune_noise_alpha")
+        if neftune_alpha is not None and neftune_alpha > 0:
+            sft_kwargs["neftune_noise_alpha"] = neftune_alpha
+
+        trainer = SFTTrainer(**sft_kwargs)
 
         # Override compute_loss for non-default loss functions
         if loss_fn_name != "cross_entropy":

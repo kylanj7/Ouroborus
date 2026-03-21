@@ -4,7 +4,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from typing import Literal
+
+from pydantic import BaseModel, field_validator
 
 
 # --- Auth schemas ---
@@ -274,6 +276,14 @@ class StartTrainingRequest(BaseModel):
     max_seq_length: int = 8192
     lora_rank: int = 64
     lora_alpha: int = 128
+    lora_dropout: float = 0.1
+    use_rslora: bool = False
+    target_modules: list[str] = [
+        "q_proj", "k_proj", "v_proj", "o_proj",
+        "gate_proj", "up_proj", "down_proj",
+    ]
+    quant_type: Literal["nf4", "fp4", "int8", "none"] = "nf4"
+    neftune_noise_alpha: float | None = None
     learning_rate: float = 1e-5
     num_epochs: int = 3
     batch_size: int = 32
@@ -285,12 +295,27 @@ class StartTrainingRequest(BaseModel):
     lr_scheduler: str = "cosine"
     weight_decay: float = 0.01
     warmup_steps: int = 100
+    warmup_ratio: float = 0.0
     max_grad_norm: float = 0.3
+    logging_steps: int = 1
+    eval_steps: int = 25
     # Config-driven mode: specify YAML config names instead of individual params
     dataset_config_name: str | None = None   # e.g. "quantum"
     model_config_name: str | None = None     # e.g. "qwen2.5-14b-instruct"
     training_config_name: str | None = None  # e.g. "default"
     resume_from_checkpoint: str | None = None
+
+    @field_validator("target_modules")
+    @classmethod
+    def validate_target_modules(cls, v: list[str]) -> list[str]:
+        valid = {"q_proj", "k_proj", "v_proj", "o_proj",
+                 "gate_proj", "up_proj", "down_proj"}
+        invalid = set(v) - valid
+        if invalid:
+            raise ValueError(f"Invalid target modules: {invalid}")
+        if not v:
+            raise ValueError("At least one target module is required")
+        return v
 
 
 class TrainingRunResponse(BaseModel):

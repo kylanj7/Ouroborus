@@ -13,7 +13,7 @@ import CycleHistory from '../components/loop/CycleHistory'
 export default function Loop() {
   const store = useLoopStore()
   const { logs, done, clear } = useLoopSSE()
-  const [showLogs, setShowLogs] = useState(false)
+  const showLogs = true  // always visible in side panel
   const [showYaml, setShowYaml] = useState(false)
   const logEndRef = useRef<HTMLDivElement>(null)
 
@@ -36,9 +36,20 @@ export default function Loop() {
   const [optimizer, setOptimizer] = useState('adamw_8bit')
   const [lrScheduler, setLrScheduler] = useState('cosine')
   const [weightDecay, setWeightDecay] = useState(0.01)
-  const [warmupSteps, setWarmupSteps] = useState(100)
   const [maxGradNorm, setMaxGradNorm] = useState(0.3)
   const [tallyModel, setTallyModel] = useState('gpt-oss:120b')
+  const [loraDropout, setLoraDropout] = useState(0.1)
+  const [useRslora, setUseRslora] = useState(false)
+  const [targetModules, setTargetModules] = useState<string[]>([
+    'q_proj', 'k_proj', 'v_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj',
+  ])
+  const [neftuneNoiseAlpha, setNeftuneNoiseAlpha] = useState<number | null>(null)
+  const [warmupRatio, setWarmupRatio] = useState(0.03)
+  const [loggingSteps, setLoggingSteps] = useState(1)
+  const [evalSteps, setEvalSteps] = useState(25)
+  const [maxSteps, setMaxSteps] = useState(-1)
+  const [quantType, setQuantType] = useState('nf4')
+  const [earlyStoppingPatience, setEarlyStoppingPatience] = useState(3)
   const [seedDatasetId, setSeedDatasetId] = useState<number | null>(null)
   const [datasets, setDatasets] = useState<Dataset[]>([])
 
@@ -82,17 +93,20 @@ training:
   max_seq_length: ${maxSeqLength}
   lora_rank: ${loraRank}
   lora_alpha: ${loraAlpha}
+  lora_dropout: ${loraDropout}
+  use_rslora: ${useRslora}
+  target_modules: [${targetModules.map(m => `"${m}"`).join(', ')}]
 
 # Training Hyperparameters
   per_device_train_batch_size: ${batchSize}
   gradient_accumulation_steps: ${gradAccumSteps}
-  num_train_epochs: ${numEpochs}
+  num_train_epochs: ${numEpochs}${maxSteps > 0 ? `\n  max_steps: ${maxSteps}` : ''}
   learning_rate: ${lrStr}
   optim: "${optimizer}"
   lr_scheduler_type: "${lrScheduler}"
   weight_decay: ${weightDecay}
-  warmup_steps: ${warmupSteps}
-  max_grad_norm: ${maxGradNorm}
+  warmup_ratio: ${warmupRatio}
+  max_grad_norm: ${maxGradNorm}${neftuneNoiseAlpha != null ? `\n  neftune_noise_alpha: ${neftuneNoiseAlpha}` : ''}
 
 # Loss Function
   loss_function: "${lossFunction}"
@@ -100,9 +114,11 @@ training:
 
 # Precision
   auto_precision: true
+  quant_type: "${quantType}"
 
 # Logging & WandB
-  logging_steps: 1
+  logging_steps: ${loggingSteps}
+  eval_steps: ${evalSteps}
   wandb_enabled: true
   wandb_project_template: "{dataset_name}-{model_name}"
 
@@ -113,6 +129,7 @@ termination:
 
 gate:
   improvement_threshold: ${gateThreshold}
+  fail_cap: ${earlyStoppingPatience}
 
 curation:
   min_pairs_per_cycle: ${minPairs}
@@ -125,7 +142,7 @@ tally:
   const baseVersion = store.cycles.filter(c => (c as any).gate_passed === true).length
 
   return (
-    <div style={{ padding: '32px', maxWidth: 1200 }}>
+    <div style={{ padding: '32px', display: 'flex', gap: 20, alignItems: 'flex-start' }}>
       {/* Pulse animation for status badge */}
       <style>{`
         @keyframes statusPulse {
@@ -137,6 +154,9 @@ tally:
 
       {/* GateBanner -- floating overlay */}
       <GateBanner data={store.gateBanner} onDismiss={store.dismissGateBanner} />
+
+      {/* Left column: main content */}
+      <div style={{ flex: 1, minWidth: 0, maxWidth: 900 }}>
 
       {/* Header + Controls Bar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
@@ -232,7 +252,7 @@ tally:
       </div>
 
       {/* Config Panel */}
-      <div style={{ ...glassCard, marginBottom: 16 }}>
+      <div className="card" style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600 }}>
             <Settings size={16} />
@@ -271,14 +291,23 @@ tally:
                   if (cfg.optim) setOptimizer(cfg.optim)
                   if (cfg.lr_scheduler_type) setLrScheduler(cfg.lr_scheduler_type)
                   if (cfg.weight_decay != null) setWeightDecay(cfg.weight_decay)
-                  if (cfg.warmup_steps != null) setWarmupSteps(cfg.warmup_steps)
                   if (cfg.max_grad_norm != null) setMaxGradNorm(cfg.max_grad_norm)
+                  if (cfg.lora_dropout != null) setLoraDropout(cfg.lora_dropout)
+                  if (cfg.use_rslora != null) setUseRslora(cfg.use_rslora)
+                  if (Array.isArray(cfg.target_modules)) setTargetModules(cfg.target_modules)
+                  if (cfg.neftune_noise_alpha != null) setNeftuneNoiseAlpha(cfg.neftune_noise_alpha)
+                  if (cfg.warmup_ratio != null) setWarmupRatio(cfg.warmup_ratio)
+                  if (cfg.logging_steps != null) setLoggingSteps(cfg.logging_steps)
+                  if (cfg.eval_steps != null) setEvalSteps(cfg.eval_steps)
+                  if (cfg.max_steps != null) setMaxSteps(cfg.max_steps)
+                  if (cfg.quant_type) setQuantType(cfg.quant_type)
                   if (cfg.loss_function) setLossFunction(cfg.loss_function)
                   if (cfg.label_smoothing_factor != null) setLabelSmoothing(cfg.label_smoothing_factor)
                   // Loop-level keys from top-level YAML
                   if (raw.termination?.target_score != null) setTargetScore(raw.termination.target_score)
                   if (raw.termination?.max_cycles != null) setMaxCycles(raw.termination.max_cycles)
                   if (raw.gate?.improvement_threshold != null) setGateThreshold(raw.gate.improvement_threshold)
+                  if (raw.gate?.fail_cap != null) setEarlyStoppingPatience(raw.gate.fail_cap)
                   if (raw.curation?.min_pairs_per_cycle != null) setMinPairs(raw.curation.min_pairs_per_cycle)
                   if (raw.tally?.model) setTallyModel(raw.tally.model)
                 } catch (err: any) {
@@ -293,8 +322,8 @@ tally:
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
               {/* Config Preset */}
               <div style={{ gridColumn: '1 / -1' }}>
-                <label style={labelStyle}>Run Type<InfoTip text="Production uses full benchmarks, retrieval, and verification. Test uses smaller limits for quick iteration." /></label>
-                <select value={configPath} onChange={e => setConfigPath(e.target.value)} style={inputStyle}>
+                <label>Run Type<InfoTip text="Production uses full benchmarks, retrieval, and verification. Test uses smaller limits for quick iteration." /></label>
+                <select value={configPath} onChange={e => setConfigPath(e.target.value)} >
                   <option value="configs/closed_loop.yaml">Production</option>
                   <option value="configs/closed_loop_test.yaml">Test</option>
                 </select>
@@ -302,12 +331,12 @@ tally:
 
               {/* Model */}
               <div>
-                <label style={labelStyle}>Base Model<InfoTip text="HuggingFace model ID or local path. The model that gets fine-tuned each cycle." /></label>
-                <input value={baseModel} onChange={e => setBaseModel(e.target.value)} style={inputStyle} />
+                <label>Base Model<InfoTip text="HuggingFace model ID or local path. The model that gets fine-tuned each cycle." /></label>
+                <input value={baseModel} onChange={e => setBaseModel(e.target.value)}  />
               </div>
               <div>
-                <label style={labelStyle}>Context Length<InfoTip text="Max token sequence length per training sample. Longer = more context but more VRAM." /></label>
-                <select value={maxSeqLength} onChange={e => setMaxSeqLength(Number(e.target.value))} style={inputStyle}>
+                <label>Context Length<InfoTip text="Max token sequence length per training sample. Longer = more context but more VRAM." /></label>
+                <select value={maxSeqLength} onChange={e => setMaxSeqLength(Number(e.target.value))} >
                   <option value={512}>512</option>
                   <option value={1024}>1024</option>
                   <option value={2048}>2048</option>
@@ -318,56 +347,154 @@ tally:
                 </select>
               </div>
               <div>
-                <label style={labelStyle}>LoRA Rank<InfoTip text="Rank of the low-rank adaptation matrices. Higher = more trainable params and expressiveness." /></label>
-                <input type="number" value={loraRank} onChange={e => setLoraRank(Number(e.target.value))} style={inputStyle} />
+                <label>LoRA Rank<InfoTip text="Rank of the low-rank adaptation matrices. Higher = more trainable params and expressiveness." /></label>
+                <input type="number" value={loraRank} onChange={e => setLoraRank(Number(e.target.value))}  />
               </div>
               <div>
-                <label style={labelStyle}>LoRA Alpha<InfoTip text="Scaling factor for LoRA updates. Typically set to 2x the rank. Controls update magnitude." /></label>
-                <input type="number" value={loraAlpha} onChange={e => setLoraAlpha(Number(e.target.value))} style={inputStyle} />
+                <label>LoRA Alpha<InfoTip text="Scaling factor for LoRA updates. Typically set to 2x the rank. Controls update magnitude." /></label>
+                <input type="number" value={loraAlpha} onChange={e => setLoraAlpha(Number(e.target.value))}  />
+              </div>
+              <div>
+                <label>LoRA Dropout<InfoTip text="Dropout rate on LoRA layers. Prevents overfitting on small datasets. Typical range: 0.05-0.1." /></label>
+                <input type="number" step="0.01" min="0" max="0.5" value={loraDropout} onChange={e => setLoraDropout(Number(e.target.value))}  />
+              </div>
+              <div>
+                <label>RS-LoRA<InfoTip text="Rank-Stabilized LoRA. Uses a different scaling factor (alpha/sqrt(r)) so training stays stable when you change rank without re-tuning the learning rate." /></label>
+                <div
+                  onClick={() => setUseRslora(!useRslora)}
+                  style={{
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    userSelect: 'none',
+                  }}
+                >
+                  <div style={{
+                    width: 36, height: 20, borderRadius: 10,
+                    background: useRslora ? 'var(--accent-green)' : 'rgba(100,116,139,0.3)',
+                    position: 'relative', transition: 'background 0.2s',
+                  }}>
+                    <div style={{
+                      width: 16, height: 16, borderRadius: 8,
+                      background: '#fff', position: 'absolute', top: 2,
+                      left: useRslora ? 18 : 2, transition: 'left 0.2s',
+                    }} />
+                  </div>
+                  <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{useRslora ? 'Enabled' : 'Disabled'}</span>
+                </div>
+              </div>
+
+              {/* Target Modules */}
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label>Target Modules<InfoTip text="Which layers to apply LoRA to. Attention layers (q/k/v/o_proj) are standard. Adding MLP layers (gate/up/down_proj) often improves reasoning." /></label>
+                <div style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 6,
+                  padding: '8px 12px',
+                }}>
+                  {[
+                    { key: 'q_proj', group: 'Attn' },
+                    { key: 'k_proj', group: 'Attn' },
+                    { key: 'v_proj', group: 'Attn' },
+                    { key: 'o_proj', group: 'Attn' },
+                    { key: 'gate_proj', group: 'MLP' },
+                    { key: 'up_proj', group: 'MLP' },
+                    { key: 'down_proj', group: 'MLP' },
+                  ].map(({ key, group }) => {
+                    const active = targetModules.includes(key)
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => setTargetModules(prev =>
+                          active ? prev.filter(m => m !== key) : [...prev, key]
+                        )}
+                        style={{
+                          padding: '4px 10px',
+                          borderRadius: 6,
+                          fontSize: 11,
+                          fontWeight: 500,
+                          fontFamily: "'JetBrains Mono', monospace",
+                          cursor: 'pointer',
+                          border: `1px solid ${active ? (group === 'MLP' ? 'var(--accent-purple)' : 'var(--accent-blue)') : 'var(--border-subtle)'}`,
+                          background: active
+                            ? (group === 'MLP' ? 'rgba(139, 92, 246, 0.15)' : 'rgba(59, 130, 246, 0.15)')
+                            : 'transparent',
+                          color: active
+                            ? (group === 'MLP' ? 'var(--accent-purple)' : 'var(--accent-blue)')
+                            : 'var(--text-muted)',
+                        }}
+                      >
+                        {key}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Quantization */}
+              <div>
+                <label>Quantization<InfoTip text="Model weight precision. NF4 is optimal for 3090s (24GB). INT8 uses more VRAM but higher fidelity. None loads full precision." /></label>
+                <select value={quantType} onChange={e => setQuantType(e.target.value)} >
+                  <option value="nf4">NF4 (4-bit NormalFloat)</option>
+                  <option value="fp4">FP4 (4-bit Float)</option>
+                  <option value="int8">INT8 (8-bit)</option>
+                  <option value="none">None (Full Precision)</option>
+                </select>
               </div>
 
               {/* Training */}
               <div>
-                <label style={labelStyle}>Learning Rate<InfoTip text="Step size for weight updates. Too high = instability, too low = slow convergence." /></label>
-                <input value={learningRate} onChange={e => setLearningRate(e.target.value)} style={inputStyle} />
+                <label>Learning Rate<InfoTip text="Step size for weight updates. Too high = instability, too low = slow convergence." /></label>
+                <input value={learningRate} onChange={e => setLearningRate(e.target.value)}  />
               </div>
               <div>
-                <label style={labelStyle}>Epochs<InfoTip text="Number of full passes over the training dataset per cycle." /></label>
-                <input type="number" value={numEpochs} onChange={e => setNumEpochs(Number(e.target.value))} style={inputStyle} />
+                <label>Epochs<InfoTip text="Number of full passes over the training dataset per cycle." /></label>
+                <input type="number" value={numEpochs} onChange={e => setNumEpochs(Number(e.target.value))}  />
               </div>
               <div>
-                <label style={labelStyle}>Batch Size<InfoTip text="Samples processed per GPU per step. Larger = smoother gradients but more VRAM." /></label>
-                <input type="number" value={batchSize} onChange={e => setBatchSize(Number(e.target.value))} style={inputStyle} />
+                <label>Max Steps<InfoTip text="Hard cap on training steps. Overrides epoch count when set. -1 means no limit (use epochs instead)." /></label>
+                <input type="number" value={maxSteps} onChange={e => setMaxSteps(Number(e.target.value))}  />
               </div>
               <div>
-                <label style={labelStyle}>Grad Accumulation<InfoTip text="Accumulate gradients over N steps before updating. Effective batch = batch_size x this value." /></label>
-                <input type="number" value={gradAccumSteps} onChange={e => setGradAccumSteps(Number(e.target.value))} style={inputStyle} />
+                <label>Batch Size<InfoTip text="Samples processed per GPU per step. Larger = smoother gradients but more VRAM." /></label>
+                <input type="number" value={batchSize} onChange={e => setBatchSize(Number(e.target.value))}  />
+              </div>
+              <div>
+                <label>Grad Accumulation<InfoTip text="Accumulate gradients over N steps before updating. Effective batch = batch_size x this value. The VRAM cheat code." /></label>
+                <input type="number" value={gradAccumSteps} onChange={e => setGradAccumSteps(Number(e.target.value))}  />
               </div>
 
               {/* Loop */}
               <div>
-                <label style={labelStyle}>Target Score (%)<InfoTip text="Benchmark score goal. The loop stops when the model reaches this accuracy." /></label>
-                <input type="number" value={targetScore} onChange={e => setTargetScore(Number(e.target.value))} style={inputStyle} />
+                <label>Target Score (%)<InfoTip text="Benchmark score goal. The loop stops when the model reaches this accuracy." /></label>
+                <input type="number" value={targetScore} onChange={e => setTargetScore(Number(e.target.value))}  />
               </div>
               <div>
-                <label style={labelStyle}>Max Cycles<InfoTip text="Upper limit on evolution cycles. The loop stops after this many iterations regardless of score." /></label>
-                <input type="number" value={maxCycles} onChange={e => setMaxCycles(Number(e.target.value))} style={inputStyle} />
+                <label>Max Cycles<InfoTip text="Upper limit on evolution cycles. The loop stops after this many iterations regardless of score." /></label>
+                <input type="number" value={maxCycles} onChange={e => setMaxCycles(Number(e.target.value))}  />
               </div>
               <div>
-                <label style={labelStyle}>Gate Threshold (pp)<InfoTip text="Minimum improvement in percentage points required to pass the quality gate and keep training." /></label>
-                <input type="number" step="0.1" value={gateThreshold} onChange={e => setGateThreshold(Number(e.target.value))} style={inputStyle} />
+                <label>Gate Threshold (pp)<InfoTip text="Minimum improvement in percentage points required to pass the quality gate and keep training." /></label>
+                <input type="number" step="0.1" value={gateThreshold} onChange={e => setGateThreshold(Number(e.target.value))}  />
               </div>
               <div>
-                <label style={labelStyle}>Min Pairs / Cycle<InfoTip text="Minimum Q&A pairs to generate per cycle. More pairs = better coverage but longer curation." /></label>
-                <input type="number" value={minPairs} onChange={e => setMinPairs(Number(e.target.value))} style={inputStyle} />
+                <label>Early Stop Patience<InfoTip text="Stop the loop after this many consecutive gate failures (no improvement). Prevents wasting compute on a plateaued model." /></label>
+                <input type="number" min="1" max="20" value={earlyStoppingPatience} onChange={e => setEarlyStoppingPatience(Number(e.target.value))}  />
               </div>
               <div>
-                <label style={labelStyle}>Tally Model<InfoTip text="LLM used by the tally agent to diagnose benchmark failures and identify weak knowledge areas." /></label>
-                <input value={tallyModel} onChange={e => setTallyModel(e.target.value)} style={inputStyle} />
+                <label>Min Pairs / Cycle<InfoTip text="Minimum Q&A pairs to generate per cycle. More pairs = better coverage but longer curation." /></label>
+                <input type="number" value={minPairs} onChange={e => setMinPairs(Number(e.target.value))}  />
               </div>
               <div>
-                <label style={labelStyle}>Loss Function<InfoTip text="Objective function for training. Focal loss down-weights easy samples to focus on hard examples." /></label>
-                <select value={lossFunction} onChange={e => setLossFunction(e.target.value)} style={inputStyle}>
+                <label>Tally Model<InfoTip text="LLM used by the tally agent to diagnose benchmark failures and identify weak knowledge areas." /></label>
+                <input value={tallyModel} onChange={e => setTallyModel(e.target.value)}  />
+              </div>
+              <div>
+                <label>Loss Function<InfoTip text="Objective function for training. Focal loss down-weights easy samples to focus on hard examples." /></label>
+                <select value={lossFunction} onChange={e => setLossFunction(e.target.value)} >
                   <option value="cross_entropy">CrossEntropyLoss</option>
                   <option value="nll">NLLLoss</option>
                   <option value="focal">Focal Loss</option>
@@ -390,12 +517,12 @@ tally:
                 </select>
               </div>
               <div>
-                <label style={labelStyle}>Label Smoothing<InfoTip text="Softens target distribution by mixing in uniform probability. Reduces overconfidence." /></label>
-                <input type="number" step="0.01" min="0" max="0.5" value={labelSmoothing} onChange={e => setLabelSmoothing(Number(e.target.value))} style={inputStyle} />
+                <label>Label Smoothing<InfoTip text="Softens target distribution by mixing in uniform probability. Reduces overconfidence." /></label>
+                <input type="number" step="0.01" min="0" max="0.5" value={labelSmoothing} onChange={e => setLabelSmoothing(Number(e.target.value))}  />
               </div>
               <div>
-                <label style={labelStyle}>Optimizer<InfoTip text="Algorithm for updating weights. adamw_8bit saves VRAM via quantized optimizer states." /></label>
-                <select value={optimizer} onChange={e => setOptimizer(e.target.value)} style={inputStyle}>
+                <label>Optimizer<InfoTip text="Algorithm for updating weights. adamw_8bit saves VRAM via quantized optimizer states." /></label>
+                <select value={optimizer} onChange={e => setOptimizer(e.target.value)} >
                   <optgroup label="AdamW">
                     <option value="adamw_torch">adamw_torch</option>
                     <option value="adamw_torch_fused">adamw_torch_fused</option>
@@ -439,8 +566,8 @@ tally:
                 </select>
               </div>
               <div>
-                <label style={labelStyle}>LR Scheduler<InfoTip text="Controls how learning rate changes over training. Cosine decays smoothly to zero." /></label>
-                <select value={lrScheduler} onChange={e => setLrScheduler(e.target.value)} style={inputStyle}>
+                <label>LR Scheduler<InfoTip text="Controls how learning rate changes over training. Cosine decays smoothly to zero." /></label>
+                <select value={lrScheduler} onChange={e => setLrScheduler(e.target.value)} >
                   <option value="cosine">Cosine</option>
                   <option value="linear">Linear</option>
                   <option value="constant">Constant</option>
@@ -452,18 +579,42 @@ tally:
                 </select>
               </div>
               <div>
-                <label style={labelStyle}>Weight Decay<InfoTip text="L2 regularization penalty. Prevents large weights and reduces overfitting." /></label>
-                <input type="number" step="0.01" min="0" max="1" value={weightDecay} onChange={e => setWeightDecay(Number(e.target.value))} style={inputStyle} />
+                <label>Weight Decay<InfoTip text="L2 regularization penalty. Prevents large weights and reduces overfitting." /></label>
+                <input type="number" step="0.01" min="0" max="1" value={weightDecay} onChange={e => setWeightDecay(Number(e.target.value))}  />
+              </div>
+
+              {/* Stability & Monitoring */}
+              <div>
+                <label>Warmup Ratio<InfoTip text="Fraction of total steps for learning rate warmup. Prevents early training instability. 3-10% is standard." /></label>
+                <input type="number" step="0.01" min="0" max="0.5" value={warmupRatio} onChange={e => setWarmupRatio(Number(e.target.value))}  />
+              </div>
+              <div>
+                <label>Grad Clipping<InfoTip text="Max gradient norm (max_grad_norm). Clips large gradients to prevent NaN loss and training instability." /></label>
+                <input type="number" step="0.1" min="0" max="5" value={maxGradNorm} onChange={e => setMaxGradNorm(Number(e.target.value))}  />
+              </div>
+              <div>
+                <label>NEFTune Alpha<InfoTip text="Noise magnitude added to embeddings during training. Improves generalization and instruction-following. Set 0 to disable, 5-15 is typical." /></label>
+                <input type="number" step="1" min="0" value={neftuneNoiseAlpha ?? 0} onChange={e => {
+                  const v = Number(e.target.value)
+                  setNeftuneNoiseAlpha(v > 0 ? v : null)
+                }}  />
+              </div>
+              <div>
+                <label>Logging Steps<InfoTip text="Log metrics every N steps. Set to 1 for real-time loss monitoring, higher for less noise in logs." /></label>
+                <input type="number" min="1" value={loggingSteps} onChange={e => setLoggingSteps(Number(e.target.value))}  />
+              </div>
+              <div>
+                <label>Eval Steps<InfoTip text="Run evaluation every N steps. Provides validation loss to detect overfitting during training." /></label>
+                <input type="number" min="1" value={evalSteps} onChange={e => setEvalSteps(Number(e.target.value))}  />
               </div>
 
               {/* Seed Dataset */}
               <div style={{ gridColumn: '1 / -1' }}>
-                <label style={labelStyle}>Seed Dataset<InfoTip text="Initial dataset to train on in cycle 0. Subsequent cycles add curated data from retrieved papers." /></label>
+                <label>Seed Dataset<InfoTip text="Initial dataset to train on in cycle 0. Subsequent cycles add curated data from retrieved papers." /></label>
                 <select
                   value={seedDatasetId ?? ''}
                   onChange={e => setSeedDatasetId(e.target.value ? Number(e.target.value) : null)}
-                  style={inputStyle}
-                >
+                                 >
                   <option value="">Select a dataset...</option>
                   {datasets.map(d => (
                     <option key={d.id} value={d.id}>
@@ -525,7 +676,7 @@ tally:
               background: 'rgba(2, 6, 18, 0.8)', border: '1px solid var(--border-card)',
               fontSize: 12, lineHeight: 1.7, color: 'var(--text-secondary)',
               overflow: 'auto', maxHeight: 400,
-              fontFamily: "'JetBrains Mono', 'Fira Code', monospace',",
+              fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
             }}>
               {generateYaml()}
             </pre>
@@ -552,98 +703,125 @@ tally:
       <StagePipeline currentStage={store.currentStage} currentCycle={store.currentCycle} />
 
       {/* BenchmarkChart */}
-      <div style={{ ...glassCard, marginTop: 16 }}>
+      <div className="card" style={{ marginTop: 16 }}>
         <BenchmarkChart cycles={store.cycles} targetScore={85} />
       </div>
 
       {/* TallyDiagnosis */}
-      <div style={{ ...glassCard, marginTop: 16 }}>
+      <div className="card" style={{ marginTop: 16 }}>
         <TallyDiagnosis tallyResult={store.tallyResult} cycle={store.currentCycle} />
       </div>
 
       {/* CycleHistory */}
-      <div style={{ ...glassCard, marginTop: 16 }}>
+      <div className="card" style={{ marginTop: 16 }}>
         <CycleHistory cycles={store.cycles} />
       </div>
 
-      {/* Live Logs -- collapsible */}
-      <div style={{ ...glassCard, marginTop: 16 }}>
-        <button
-          onClick={() => setShowLogs(v => !v)}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 6,
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            color: 'var(--text-secondary)',
-            fontSize: 13,
-            fontWeight: 600,
-            padding: 0,
-          }}
-        >
-          {showLogs ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-          {showLogs ? 'Hide Logs' : 'Show Logs'}
-        </button>
+      </div>{/* end left column */}
 
-        {showLogs && (
-          <div style={{
-            marginTop: 12,
-            fontFamily: 'monospace',
-            fontSize: 12,
-            lineHeight: 1.6,
-            background: 'rgba(0, 0, 0, 0.4)',
-            border: '1px solid var(--border-subtle)',
-            borderRadius: 8,
-            padding: '12px 16px',
-            maxHeight: 400,
-            overflowY: 'scroll',
-            color: 'var(--text-secondary)',
-          }}>
-            {logs.length === 0 ? (
-              <span style={{ color: 'var(--text-muted)' }}>No log output yet.</span>
-            ) : (
-              <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                {logs.join('\n')}
-              </pre>
-            )}
-            <div ref={logEndRef} />
+      {/* Right column: live logs panel */}
+      <div style={{
+        width: 380,
+        flexShrink: 0,
+        position: 'sticky',
+        top: 32,
+        alignSelf: 'flex-start',
+        background: 'rgba(8, 12, 24, 0.85)',
+        backdropFilter: 'blur(16px)',
+        border: '1px solid var(--border-subtle)',
+        borderRadius: 14,
+        overflow: 'hidden',
+      }}>
+        {/* Terminal header bar */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '10px 16px',
+          background: 'rgba(0, 0, 0, 0.3)',
+          borderBottom: '1px solid var(--border-subtle)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {/* Terminal dots */}
+            <div style={{ display: 'flex', gap: 6 }}>
+              <span style={{ width: 10, height: 10, borderRadius: '50%', background: isRunning ? '#EF4444' : '#3B3B3B' }} />
+              <span style={{ width: 10, height: 10, borderRadius: '50%', background: isRunning ? '#EAB308' : '#3B3B3B' }} />
+              <span style={{ width: 10, height: 10, borderRadius: '50%', background: isRunning ? '#22C55E' : '#3B3B3B' }} />
+            </div>
+            <span style={{
+              fontSize: 11,
+              fontWeight: 600,
+              color: 'var(--text-muted)',
+              textTransform: 'uppercase',
+              letterSpacing: '1px',
+              marginLeft: 4,
+            }}>
+              Live Logs
+            </span>
           </div>
-        )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {isRunning && (
+              <span style={{
+                fontSize: 10,
+                color: 'var(--accent-green)',
+                fontWeight: 600,
+                letterSpacing: '0.5px',
+                animation: 'statusPulse 2s ease-in-out infinite',
+              }}>
+                STREAMING
+              </span>
+            )}
+            <span style={{
+              fontSize: 10,
+              color: 'var(--text-muted)',
+              fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+            }}>
+              {logs.length} lines
+            </span>
+          </div>
+        </div>
+
+        {/* Log content */}
+        <div style={{
+          fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+          fontSize: 11,
+          lineHeight: 1.7,
+          background: 'rgba(2, 4, 12, 0.6)',
+          padding: '12px 14px',
+          height: 'calc(100vh - 140px)',
+          overflowY: 'auto',
+          color: '#8A9AB5',
+          scrollbarWidth: 'thin',
+          scrollbarColor: 'rgba(255,255,255,0.1) transparent',
+        }}>
+          {logs.length === 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 12 }}>
+              <span style={{ fontSize: 24, opacity: 0.2 }}>{'>'}_</span>
+              <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>Waiting for output...</span>
+            </div>
+          ) : (
+            <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+              {logs.map((line, i) => {
+                const isError = /error|fail|crash/i.test(line)
+                const isWarn = /warn|warning/i.test(line)
+                const isStage = /BASELINE|TALLYING|RETRIEVING|CURATING|TRAINING|MERGING|EVALUATING|GATING/i.test(line)
+                return (
+                  <span key={i} style={{
+                    display: 'block',
+                    color: isError ? '#EF4444' : isWarn ? '#EAB308' : isStage ? 'var(--accent-green)' : undefined,
+                    fontWeight: isStage ? 600 : undefined,
+                  }}>
+                    {line}
+                  </span>
+                )
+              })}
+            </pre>
+          )}
+          <div ref={logEndRef} />
+        </div>
       </div>
     </div>
   )
-}
-
-const glassCard: React.CSSProperties = {
-  background: 'rgba(255, 255, 255, 0.03)',
-  backdropFilter: 'blur(12px)',
-  border: '1px solid var(--border-color)',
-  borderRadius: 12,
-  padding: 24,
-}
-
-const labelStyle: React.CSSProperties = {
-  display: 'block',
-  fontSize: 11,
-  fontWeight: 600,
-  color: 'var(--text-muted)',
-  marginBottom: 4,
-  textTransform: 'uppercase',
-  letterSpacing: '0.5px',
-}
-
-const inputStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '8px 12px',
-  borderRadius: 8,
-  border: '1px solid var(--border-color)',
-  background: 'rgba(0, 0, 0, 0.3)',
-  color: 'var(--text-primary)',
-  fontSize: 13,
-  outline: 'none',
-  boxSizing: 'border-box',
 }
 
 function btnStyle(variant: 'start' | 'stop' | 'cancel', disabled: boolean): React.CSSProperties {
