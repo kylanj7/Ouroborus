@@ -1,96 +1,36 @@
 import { useCallback, useRef, useEffect, useState } from 'react'
-import ForceGraph3D from 'react-force-graph-3d'
-import * as THREE from 'three'
+import ForceGraph2D from 'react-force-graph-2d'
 
-// ── Shared geometries ───────────────────────────────────────────────
-const SHARED_GEO = {
-  qa: new THREE.OctahedronGeometry(1, 0),
-  paper: new THREE.SphereGeometry(1, 6, 4),
-  dataset: new THREE.IcosahedronGeometry(1, 1),
-  datasetWire: new THREE.IcosahedronGeometry(1.15, 1),
+// Neo4j Bloom dark mode palette
+const BLOOM = {
+  bg: '#0d0d1a',
+  nodeGlow: 0.4,
+  linkAlpha: 0.15,
+  labelColor: 'rgba(220, 225, 240, 0.85)',
+  labelFont: '11px Inter, sans-serif',
+  clusterLabelFont: 'bold 13px Inter, sans-serif',
 }
-
-const PROXY_MAT = new THREE.MeshBasicMaterial({ visible: false })
-
-const _matCache = new Map<string, THREE.Material>()
-function getMaterial(
-  kind: 'basic' | 'phong',
-  color: string,
-  opacity: number,
-  extra: Record<string, any> = {},
-): THREE.Material {
-  const key = `${kind}|${color}|${opacity}|${JSON.stringify(extra)}`
-  let mat = _matCache.get(key)
-  if (!mat) {
-    if (kind === 'basic') {
-      mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity, ...extra })
-    } else {
-      mat = new THREE.MeshPhongMaterial({
-        color, transparent: true, opacity,
-        emissive: color, emissiveIntensity: 0.3, ...extra,
-      })
-    }
-    _matCache.set(key, mat)
-  }
-  return mat
-}
-
-const _dummy = new THREE.Object3D()
-const _tmpColor = new THREE.Color()
-
-// ── Component ───────────────────────────────────────────────────────
 
 type ActiveFilter = 'paper' | 'qa' | null
 
 interface Props {
-  nodes: any[]       // papers + datasets only (simulated by d3-force)
-  links: any[]       // dataset_paper + keyword links only
-  qaNodes: any[]     // QA nodes (NOT in force sim, positioned procedurally)
-  qaParentMap: Map<string, string>  // qaNodeId -> parentNodeId
-  qaParentIds: Set<string>          // paper/dataset IDs that have QA children
+  nodes: any[]
+  links: any[]
+  qaNodes: any[]
+  qaParentMap: Map<string, string>
+  qaParentIds: Set<string>
   activeFilter: ActiveFilter
   searchQuery: string
   onNodeClick: (node: any) => void
-}
-
-interface InstanceRef {
-  mesh: THREE.InstancedMesh
-  nodeIds: string[]
 }
 
 export default function GalaxyCanvas({ nodes, links, qaNodes, qaParentMap, qaParentIds, activeFilter, searchQuery, onNodeClick }: Props) {
   const fgRef = useRef<any>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 })
-  const starfieldRef = useRef<THREE.Points | null>(null)
+  const [hoveredNode, setHoveredNode] = useState<any>(null)
 
-  const paperInstanceRef = useRef<InstanceRef | null>(null)
-  const qaInstanceRef = useRef<InstanceRef | null>(null)
-
-  // Stable refs for tick callback
-  const nodesRef = useRef(nodes)
-  nodesRef.current = nodes
-  const qaNodesRef = useRef(qaNodes)
-  qaNodesRef.current = qaNodes
-  const qaParentMapRef = useRef(qaParentMap)
-  qaParentMapRef.current = qaParentMap
-  const activeFilterRef = useRef(activeFilter)
-  activeFilterRef.current = activeFilter
-  const qaParentIdsRef = useRef(qaParentIds)
-  qaParentIdsRef.current = qaParentIds
-
-  // Pre-build node lookup (rebuilt on nodes change, not per tick)
-  const nodeMapRef = useRef<Map<string, any>>(new Map())
-  useEffect(() => {
-    const map = new Map<string, any>()
-    for (const n of nodes) map.set(n.id, n)
-    nodeMapRef.current = map
-  }, [nodes])
-
-  // Throttle counter for tick sync
-  const tickCountRef = useRef(0)
-
-  // ── Resize ────────────────────────────────────────────────────────
+  // Resize
   useEffect(() => {
     const updateSize = () => {
       if (containerRef.current) {
@@ -105,361 +45,203 @@ export default function GalaxyCanvas({ nodes, links, qaNodes, qaParentMap, qaPar
     return () => window.removeEventListener('resize', updateSize)
   }, [])
 
-  // ── GPU diagnostics ─────────────────────────────────────────────
-  const [gpuInfo, setGpuInfo] = useState<string>('')
-
-  useEffect(() => {
-    const fg = fgRef.current
-    if (!fg) return
-    const renderer = fg.renderer() as THREE.WebGLRenderer | undefined
-    if (renderer) {
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
-      const gl = renderer.getContext()
-      const ext = gl.getExtension('WEBGL_debug_renderer_info')
-      if (ext) {
-        const vendor = gl.getParameter(ext.UNMASKED_VENDOR_WEBGL)
-        const gpu = gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)
-        setGpuInfo(`${vendor} | ${gpu}`)
-        console.log('[Galaxy GPU]', vendor, gpu)
-      } else {
-        setGpuInfo('GPU info unavailable (extension blocked)')
-        console.warn('[Galaxy GPU] WEBGL_debug_renderer_info not available')
-      }
-    }
-  }, [])
-
-  // ── Auto-rotate ───────────────────────────────────────────────────
-  useEffect(() => {
-    const fg = fgRef.current
-    if (!fg) return
-    const controls = fg.controls()
-    if (controls) {
-      controls.autoRotate = true
-      controls.autoRotateSpeed = 0.5
-    }
-  }, [nodes])
-
-  // ── Force tuning ──────────────────────────────────────────────────
-  const forcesApplied = useRef(false)
+  // Force tuning -- converge fast, then freeze
   useEffect(() => {
     const fg = fgRef.current
     if (!fg || nodes.length === 0) return
-    if (forcesApplied.current) return
     const timer = setTimeout(() => {
       try {
         const charge = fg.d3Force('charge')
         if (charge) {
           charge.strength((node: any) =>
-            node.type === 'dataset' ? -150 : -60
+            node.type === 'dataset' ? -200 : -30
           )
         }
         const link = fg.d3Force('link')
         if (link) {
           link.distance((l: any) =>
-            l.type === 'dataset_paper' ? 80 : 60
-          )
-          link.strength((l: any) =>
-            l.type === 'dataset_paper' ? 0.15 : 0.05
+            l.type === 'dataset_paper' ? 60 : 40
           )
         }
-        forcesApplied.current = true
         fg.d3ReheatSimulation()
       } catch (_) { /* not ready */ }
     }, 100)
     return () => clearTimeout(timer)
-  }, [nodes])
+  }, [nodes.length > 0])
 
-  // ── Starfield ─────────────────────────────────────────────────────
-  useEffect(() => {
-    const fg = fgRef.current
-    if (!fg || nodes.length === 0) return
-    const scene = fg.scene()
+  // Check node visibility based on active filter
+  const isVisible = useCallback((node: any) => {
+    if (activeFilter === null) return true
+    if (activeFilter === 'paper') return node.type === 'paper' || node.type === 'dataset'
+    if (activeFilter === 'qa') return node.type === 'qa' || node.type === 'dataset' || qaParentIds.has(node.id)
+    return true
+  }, [activeFilter, qaParentIds])
 
-    if (starfieldRef.current) {
-      scene.remove(starfieldRef.current)
-      starfieldRef.current.geometry.dispose()
-      ;(starfieldRef.current.material as THREE.Material).dispose()
-    }
+  // Custom node renderer -- Neo4j Bloom style
+  const nodeCanvasObject = useCallback((node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
+    if (!isVisible(node)) return
 
-    const count = 1500
-    const positions = new Float32Array(count * 3)
-    for (let i = 0; i < count; i++) {
-      const theta = Math.random() * Math.PI * 2
-      const phi = Math.acos(2 * Math.random() - 1)
-      const r = 500 + Math.random() * 1000
-      positions[i * 3] = r * Math.sin(phi) * Math.cos(theta)
-      positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta)
-      positions[i * 3 + 2] = r * Math.cos(phi)
-    }
-
-    const geo = new THREE.BufferGeometry()
-    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
-    const mat = new THREE.PointsMaterial({
-      color: '#c8d4ff', size: 1.2, transparent: true, opacity: 0.5,
-      sizeAttenuation: false, blending: THREE.AdditiveBlending, depthWrite: false,
-    })
-    const stars = new THREE.Points(geo, mat)
-    stars.onBeforeRender = () => {
-      const t = performance.now() * 0.001
-      stars.rotation.y = t * 0.008
-      stars.rotation.x = Math.sin(t * 0.004) * 0.08
-    }
-    scene.add(stars)
-    starfieldRef.current = stars
-
-    return () => {
-      scene.remove(stars)
-      geo.dispose()
-      mat.dispose()
-      starfieldRef.current = null
-    }
-  }, [nodes.length > 0]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Helper: build InstancedMesh ───────────────────────────────────
-  function buildInstance(
-    scene: THREE.Scene,
-    filtered: any[],
-    geometry: THREE.BufferGeometry,
-    ref: React.MutableRefObject<InstanceRef | null>,
-  ) {
-    if (ref.current) {
-      scene.remove(ref.current.mesh)
-      ;(ref.current.mesh.material as THREE.Material).dispose()
-      ref.current.mesh.dispose()
-      ref.current = null
-    }
-    if (filtered.length === 0) return
-
-    const count = filtered.length
-    const mat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.9 })
-    const mesh = new THREE.InstancedMesh(geometry, mat, count)
-    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
-
-    for (let i = 0; i < count; i++) {
-      _tmpColor.set(filtered[i].color || '#22c55e')
-      if (searchQuery && !filtered[i]._match) _tmpColor.multiplyScalar(0.15)
-      mesh.setColorAt(i, _tmpColor)
-    }
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
-
-    for (let i = 0; i < count; i++) {
-      _dummy.position.set(filtered[i].x || 0, filtered[i].y || 0, filtered[i].z || 0)
-      _dummy.scale.setScalar(filtered[i].size || 2.5)
-      _dummy.updateMatrix()
-      mesh.setMatrixAt(i, _dummy.matrix)
-    }
-    mesh.instanceMatrix.needsUpdate = true
-
-    scene.add(mesh)
-    ref.current = { mesh, nodeIds: filtered.map((n: any) => n.id) }
-  }
-
-  // ── Paper InstancedMesh ───────────────────────────────────────────
-  useEffect(() => {
-    const fg = fgRef.current
-    if (!fg) return
-    const scene = fg.scene()
-    const paperNodes = nodes.filter((n: any) => n.type === 'paper')
-    buildInstance(scene, paperNodes, SHARED_GEO.paper, paperInstanceRef)
-    return () => {
-      if (paperInstanceRef.current) {
-        fg.scene().remove(paperInstanceRef.current.mesh)
-        ;(paperInstanceRef.current.mesh.material as THREE.Material).dispose()
-        paperInstanceRef.current.mesh.dispose()
-        paperInstanceRef.current = null
-      }
-    }
-  }, [nodes, searchQuery])
-
-  // ── QA InstancedMesh (positioned procedurally, not in force sim) ──
-  useEffect(() => {
-    const fg = fgRef.current
-    if (!fg) return
-    const scene = fg.scene()
-    buildInstance(scene, qaNodes, SHARED_GEO.qa, qaInstanceRef)
-    return () => {
-      if (qaInstanceRef.current) {
-        fg.scene().remove(qaInstanceRef.current.mesh)
-        ;(qaInstanceRef.current.mesh.material as THREE.Material).dispose()
-        qaInstanceRef.current.mesh.dispose()
-        qaInstanceRef.current = null
-      }
-    }
-  }, [qaNodes, searchQuery])
-
-  // ── Sync positions from force sim each tick (throttled) ───────────
-  const syncPositions = useCallback(() => {
-    // Throttle: update every 4th tick to reduce CPU pressure
-    tickCountRef.current++
-    if (tickCountRef.current % 4 !== 0) return
-
-    const nodeMap = nodeMapRef.current
-
-    // Sync paper instances
-    const paperInst = paperInstanceRef.current
-    const filter = activeFilterRef.current
-    const parentIds = qaParentIdsRef.current
-    if (paperInst) {
-      const { mesh, nodeIds } = paperInst
-      for (let i = 0; i < nodeIds.length; i++) {
-        const node = nodeMap.get(nodeIds[i])
-        if (!node) continue
-        _dummy.position.set(node.x || 0, node.y || 0, node.z || 0)
-        // Hide papers when QA filter active and paper has no QA children
-        const hidden = filter === 'qa' && !parentIds.has(nodeIds[i])
-        _dummy.scale.setScalar(hidden ? 0 : (node.size || 4))
-        _dummy.updateMatrix()
-        mesh.setMatrixAt(i, _dummy.matrix)
-      }
-      mesh.instanceMatrix.needsUpdate = true
-    }
-
-    // Sync QA instances: position around their parent node
-    const qaInst = qaInstanceRef.current
-    if (qaInst) {
-      const { mesh, nodeIds } = qaInst
-      const currentQA = qaNodesRef.current
-      const parentMap = qaParentMapRef.current
-
-      // Pre-compute per-parent offsets using golden angle distribution
-      const parentChildCount = new Map<string, number>()
-      const parentChildIndex = new Map<string, number>()
-
-      for (let i = 0; i < nodeIds.length; i++) {
-        const parentId = parentMap.get(nodeIds[i])
-        if (!parentId) continue
-        const count = (parentChildCount.get(parentId) || 0)
-        parentChildCount.set(parentId, count + 1)
-      }
-
-      for (let i = 0; i < nodeIds.length; i++) {
-        const qaNode = currentQA[i]
-        if (!qaNode) continue
-        const parentId = parentMap.get(nodeIds[i])
-        const parent = parentId ? nodeMap.get(parentId) : null
-
-        if (parent && parentId) {
-          // Golden angle spherical distribution around parent
-          const idx = parentChildIndex.get(parentId) || 0
-          parentChildIndex.set(parentId, idx + 1)
-          const total = parentChildCount.get(parentId) || 1
-          const radius = 5 + total * 0.3
-          const golden = 2.399963 // golden angle in radians
-          const theta = golden * idx
-          const phi = Math.acos(1 - 2 * (idx + 0.5) / Math.max(total, 1))
-
-          _dummy.position.set(
-            (parent.x || 0) + radius * Math.sin(phi) * Math.cos(theta),
-            (parent.y || 0) + radius * Math.sin(phi) * Math.sin(theta),
-            (parent.z || 0) + radius * Math.cos(phi),
-          )
-        } else {
-          _dummy.position.set(qaNode.x || 0, qaNode.y || 0, qaNode.z || 0)
-        }
-        // Hide QA nodes when Papers filter active
-        const qaHidden = filter === 'paper'
-        _dummy.scale.setScalar(qaHidden ? 0 : (qaNode.size || 2.5))
-        _dummy.updateMatrix()
-        mesh.setMatrixAt(i, _dummy.matrix)
-      }
-      mesh.instanceMatrix.needsUpdate = true
-    }
-  }, [])
-
-  // ── Node renderer (papers use invisible proxy, datasets render directly) ──
-  const nodeThreeObject = useCallback((node: any) => {
     const size = node.size || 4
+    const x = node.x || 0
+    const y = node.y || 0
+    const color = node.color || '#4ADE80'
+    const dimmed = (searchQuery && !node._match) || (activeFilter === 'qa' && node.type === 'paper' && !qaParentIds.has(node.id))
+    const alpha = dimmed ? 0.08 : 1
 
-    if (node.type === 'paper') {
-      const mesh = new THREE.Mesh(SHARED_GEO.paper, PROXY_MAT)
-      mesh.scale.setScalar(size)
-      return mesh
+    ctx.save()
+    ctx.globalAlpha = alpha
+
+    // Outer glow (Bloom effect)
+    if (!dimmed && size > 3) {
+      const gradient = ctx.createRadialGradient(x, y, size * 0.5, x, y, size * 2.5)
+      gradient.addColorStop(0, color + '40')
+      gradient.addColorStop(1, color + '00')
+      ctx.fillStyle = gradient
+      ctx.beginPath()
+      ctx.arc(x, y, size * 2.5, 0, Math.PI * 2)
+      ctx.fill()
     }
 
-    // Dataset: only ~4 of these
-    const color = node.color || '#3b82f6'
-    const dimmed = searchQuery && !node._match
-    const opacity = dimmed ? 0.15 : 1
-    const mat = getMaterial('phong', color, opacity, { shininess: 100 })
-    const mesh = new THREE.Mesh(SHARED_GEO.dataset, mat)
-    mesh.scale.setScalar(size)
-    const wireMat = getMaterial('basic', '#ffffff', opacity * 0.25, { wireframe: true })
-    const wire = new THREE.Mesh(SHARED_GEO.datasetWire, wireMat)
-    mesh.add(wire)
-    return mesh
-  }, [searchQuery]) // activeFilter NOT a dep -- datasets always stay in sim
+    // Node body
+    ctx.fillStyle = color
+    ctx.beginPath()
 
-  // ── Memoized link styling ─────────────────────────────────────────
-  const linkColorFn = useCallback((link: any) => {
-    // Hide links not relevant to current filter
-    if (activeFilter === 'paper' && (link.type === 'paper_qa' || link.type === 'dataset_qa')) return 'rgba(0,0,0,0)'
-    if (activeFilter === 'qa' && link.type === 'keyword') return 'rgba(0,0,0,0)'
-    if (link.type === 'dataset_paper') return 'rgba(59, 130, 246, 0.25)'
-    if (link.type === 'keyword') return 'rgba(255, 214, 102, 0.15)'
-    return 'rgba(59, 130, 246, 0.1)'
+    if (node.type === 'dataset') {
+      // Diamond shape for datasets
+      const s = size * 1.2
+      ctx.moveTo(x, y - s)
+      ctx.lineTo(x + s, y)
+      ctx.lineTo(x, y + s)
+      ctx.lineTo(x - s, y)
+      ctx.closePath()
+    } else if (node.type === 'qa') {
+      // Small square for QA
+      const s = size * 0.6
+      ctx.rect(x - s, y - s, s * 2, s * 2)
+    } else {
+      // Circle for papers
+      ctx.arc(x, y, size, 0, Math.PI * 2)
+    }
+    ctx.fill()
+
+    // Border ring
+    if (node.type === 'dataset') {
+      ctx.strokeStyle = color
+      ctx.lineWidth = 1.5
+      ctx.stroke()
+    }
+
+    // Label -- show on hover or for datasets always
+    const showLabel = node.type === 'dataset' || hoveredNode?.id === node.id || globalScale > 2.5
+    if (showLabel && !dimmed) {
+      const label = node.label || ''
+      const truncated = label.length > 30 ? label.slice(0, 27) + '...' : label
+      ctx.font = node.type === 'dataset' ? BLOOM.clusterLabelFont : BLOOM.labelFont
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'top'
+      ctx.fillStyle = BLOOM.labelColor
+      ctx.fillText(truncated, x, y + size + 3)
+    }
+
+    ctx.restore()
+  }, [searchQuery, activeFilter, qaParentIds, hoveredNode, isVisible])
+
+  // Link renderer
+  const linkCanvasObject = useCallback((link: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
+    const src = link.source
+    const tgt = link.target
+    if (!src || !tgt || src.x == null || tgt.x == null) return
+
+    // Hide links based on filter
+    if (activeFilter === 'paper' && (link.type === 'paper_qa' || link.type === 'dataset_qa')) return
+    if (activeFilter === 'qa' && link.type === 'keyword') return
+
+    let alpha = BLOOM.linkAlpha
+    let color = '#4a5568'
+    let width = 0.5
+
+    if (link.type === 'dataset_paper') {
+      color = '#4ADE80'
+      alpha = 0.2
+      width = 0.8
+    } else if (link.type === 'keyword') {
+      color = '#F97316'
+      alpha = 0.08
+      width = 0.3
+    } else if (link.type === 'paper_qa' || link.type === 'dataset_qa') {
+      color = '#8B5CF6'
+      alpha = 0.12
+      width = 0.4
+    }
+
+    ctx.save()
+    ctx.globalAlpha = alpha
+    ctx.strokeStyle = color
+    ctx.lineWidth = width / globalScale
+    ctx.beginPath()
+    ctx.moveTo(src.x, src.y)
+    ctx.lineTo(tgt.x, tgt.y)
+    ctx.stroke()
+    ctx.restore()
   }, [activeFilter])
 
-  const linkWidthFn = useCallback((link: any) =>
-    link.type === 'dataset_paper' ? 1.2 : (link.weight || 0.3) * 2
-  , [])
+  // Build combined graph data (papers + datasets + visible QA nodes)
+  const graphData = useCallback(() => {
+    // Always include all sim nodes (visibility handled in render)
+    const allNodes = [...nodes]
 
-  // ── Tooltip ───────────────────────────────────────────────────────
-  const getNodeLabel = useCallback((node: any) => {
-    if (node.type === 'dataset') {
-      return `<div style="background:rgba(10,10,30,0.9);padding:8px 12px;border-radius:6px;border:1px solid rgba(59,130,246,0.3);max-width:300px">
-        <div style="color:#3b82f6;font-weight:600;margin-bottom:4px">Dataset</div>
-        <div style="color:#e8e8f0">${node.label}</div>
-        <div style="color:#888;font-size:12px;margin-top:4px">${node.abstract || ''}</div>
-      </div>`
+    // Add QA nodes
+    for (const qa of qaNodes) {
+      const parentId = qaParentMap.get(qa.id)
+      const parent = parentId ? nodes.find((n: any) => n.id === parentId) : null
+      if (parent) {
+        // Position QA near parent with jitter
+        const angle = Math.random() * Math.PI * 2
+        const r = 8 + Math.random() * 5
+        allNodes.push({
+          ...qa,
+          fx: (parent.x || 0) + Math.cos(angle) * r,
+          fy: (parent.y || 0) + Math.sin(angle) * r,
+        })
+      }
     }
-    const qaCount = node.qa_pair_count != null ? node.qa_pair_count : 0
-    return `<div style="background:rgba(10,10,30,0.9);padding:8px 12px;border-radius:6px;border:1px solid rgba(59,130,246,0.3);max-width:300px">
-      <div style="color:#22c55e;font-weight:600;margin-bottom:4px">Paper</div>
-      <div style="color:#e8e8f0">${node.label}</div>
-      <div style="color:#888;font-size:12px;margin-top:4px">Year: ${node.year || 'N/A'} | Citations: ${node.citation_count || 0} | Q&A pairs: ${qaCount}</div>
-    </div>`
-  }, [])
 
-  // ── Render ────────────────────────────────────────────────────────
+    // All links
+    const allLinks = [...links]
+
+    return { nodes: allNodes, links: allLinks }
+  }, [nodes, qaNodes, qaParentMap, links])
+
   return (
-    <div ref={containerRef} style={{ width: '100%', height: '100%', background: '#020617', position: 'relative' }}>
-      {gpuInfo && (
-        <div style={{
-          position: 'absolute', bottom: '8px', right: '8px', zIndex: 20,
-          fontSize: '10px', color: 'rgba(255,255,255,0.4)', fontFamily: 'monospace',
-          background: 'rgba(0,0,0,0.5)', padding: '4px 8px', borderRadius: '4px',
-        }}>
-          GPU: {gpuInfo}
-        </div>
-      )}
+    <div ref={containerRef} style={{ width: '100%', height: '100%', background: BLOOM.bg }}>
       {nodes.length === 0 && qaNodes.length === 0 ? (
         <div className="empty-state" style={{ paddingTop: '200px' }}>
           <h3>No data in Galaxy</h3>
-          <p>Generate a dataset to populate the Galaxy viewer</p>
+          <p>Generate a dataset to populate the Knowledge Graph</p>
         </div>
       ) : (
-        <ForceGraph3D
+        <ForceGraph2D
           ref={fgRef}
-          rendererConfig={{ antialias: false, alpha: true, powerPreference: 'high-performance' }}
           width={dimensions.width}
           height={dimensions.height}
-          graphData={{ nodes, links }}
-          nodeThreeObject={nodeThreeObject}
-          nodeThreeObjectExtend={false}
-          linkColor={linkColorFn}
-          linkWidth={linkWidthFn}
-          linkOpacity={0.7}
+          graphData={graphData()}
+          nodeCanvasObject={nodeCanvasObject}
+          nodePointerAreaPaint={(node: any, color: string, ctx: CanvasRenderingContext2D) => {
+            const size = node.size || 4
+            ctx.fillStyle = color
+            ctx.beginPath()
+            ctx.arc(node.x || 0, node.y || 0, size + 2, 0, Math.PI * 2)
+            ctx.fill()
+          }}
+          linkCanvasObject={linkCanvasObject}
           onNodeClick={onNodeClick}
-          nodeLabel={getNodeLabel}
-          onEngineTick={syncPositions}
-          cooldownTicks={60}
-          d3AlphaDecay={0.05}
-          d3VelocityDecay={0.5}
-          d3AlphaMin={0.02}
-          backgroundColor="#020617"
-          showNavInfo={false}
-          warmupTicks={40}
-          enableNodeDrag={false}
+          onNodeHover={(node: any) => setHoveredNode(node)}
+          cooldownTicks={80}
+          d3AlphaDecay={0.04}
+          d3VelocityDecay={0.4}
+          d3AlphaMin={0.01}
+          backgroundColor={BLOOM.bg}
+          enableNodeDrag={true}
         />
       )}
     </div>

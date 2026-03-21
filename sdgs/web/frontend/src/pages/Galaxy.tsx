@@ -15,9 +15,7 @@ export default function Galaxy() {
     fetchData()
   }, [])
 
-  // Split nodes into simulation nodes (papers+datasets) and QA nodes (rendered separately)
-  // This is computed once from data -- NOT dependent on activeFilter,
-  // so changing filters never restarts the force simulation.
+  // Process all nodes -- search highlighting, parent maps
   const { simNodes, simLinks, qaNodes, qaParentMap, qaParentIds } = useMemo(() => {
     if (!data) return { simNodes: [], simLinks: [], qaNodes: [], qaParentMap: new Map(), qaParentIds: new Set<string>() }
 
@@ -33,11 +31,10 @@ export default function Galaxy() {
         }))
       : allNodes
 
-    // Separate QA nodes out of the force simulation
     const sNodes = processed.filter(n => n.type !== 'qa')
     const qNodes = processed.filter(n => n.type === 'qa')
 
-    // Build parent map from QA links (paper_qa / dataset_qa)
+    // Build parent map
     const parentMap = new Map<string, string>()
     const pIds = new Set<string>()
     for (const link of allLinks) {
@@ -49,34 +46,21 @@ export default function Galaxy() {
       }
     }
 
-    // Only pass non-QA links to the force simulation
     const sLinks = allLinks.filter(l => l.type !== 'paper_qa' && l.type !== 'dataset_qa')
 
     return { simNodes: sNodes, simLinks: sLinks, qaNodes: qNodes, qaParentMap: parentMap, qaParentIds: pIds }
   }, [data, searchQuery])
 
-  // Counts for the controls panel (always based on full data, not filtered)
-  const paperCount = useMemo(() =>
-    simNodes.filter(n => n.type === 'paper').length
-  , [simNodes])
-
+  const paperCount = useMemo(() => simNodes.filter(n => n.type === 'paper').length, [simNodes])
   const qaCount = qaNodes.length
 
-  // Papers in the selected dataset's cluster (for dataset detail panel)
   const datasetPapers = useMemo(() => {
     if (!selectedNode || selectedNode.type !== 'dataset') return []
-    return simNodes.filter(
-      (n: any) => n.type === 'paper' && n.cluster === selectedNode.node.cluster,
-    )
+    return simNodes.filter((n: any) => n.type === 'paper' && n.cluster === selectedNode.node.cluster)
   }, [selectedNode, simNodes])
 
-  const handleNodeClick = useCallback((node: any) => {
-    selectNode(node)
-  }, [selectNode])
-
-  const handleDatasetPaperClick = useCallback((paperNode: any) => {
-    selectNode(paperNode)
-  }, [selectNode])
+  const handleNodeClick = useCallback((node: any) => selectNode(node), [selectNode])
+  const handleDatasetPaperClick = useCallback((node: any) => selectNode(node), [selectNode])
 
   if (loading) {
     return <div style={{ textAlign: 'center', padding: '40px' }}><div className="spinner" /></div>
@@ -85,7 +69,7 @@ export default function Galaxy() {
   if (error) {
     return (
       <div style={{ textAlign: 'center', padding: '40px', color: 'var(--accent-red, #ff6b6b)' }}>
-        <h3>Galaxy Error</h3>
+        <h3>Knowledge Graph Error</h3>
         <pre style={{ whiteSpace: 'pre-wrap', fontSize: '13px', maxWidth: '600px', margin: '0 auto' }}>{error}</pre>
       </div>
     )
@@ -93,10 +77,8 @@ export default function Galaxy() {
 
   return (
     <div style={{ position: 'relative', height: 'calc(100vh - 48px)' }}>
-      {/* Controls overlay */}
-      <div style={{
-        position: 'absolute', top: '16px', left: '16px', zIndex: 10,
-      }}>
+      {/* Controls */}
+      <div style={{ position: 'absolute', top: '16px', left: '16px', zIndex: 10 }}>
         <GalaxyControls
           searchQuery={searchQuery}
           onSearch={setSearchQuery}
@@ -105,6 +87,14 @@ export default function Galaxy() {
           activeFilter={activeFilter}
           onToggleFilter={setActiveFilter}
         />
+      </div>
+
+      {/* Stats overlay */}
+      <div style={{
+        position: 'absolute', bottom: '12px', left: '16px', zIndex: 10,
+        fontSize: '11px', color: 'rgba(180, 190, 210, 0.5)', fontFamily: 'monospace',
+      }}>
+        {simNodes.length} papers / {qaCount} QA / {simLinks.length} links
       </div>
 
       {/* Graph */}
