@@ -95,7 +95,7 @@ export default function Evaluations() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', marginBottom: '12px' }}>
             {!trainingRunId && (
               <div>
-                <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Model Path</label>
+                <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Model Path</label>
                 {!customModelPath ? (
                   <select
                     value={modelPath}
@@ -151,7 +151,7 @@ export default function Evaluations() {
               </div>
             )}
             <div>
-              <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Judge Model</label>
+              <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Judge Model</label>
               <input
                 type="text"
                 value={judgeModel}
@@ -161,7 +161,7 @@ export default function Evaluations() {
               />
             </div>
             <div>
-              <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Max Samples</label>
+              <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Max Samples</label>
               <input
                 type="number"
                 value={maxSamples}

@@ -171,8 +171,8 @@ export default function Papers() {
     <div>
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
-          <h1>PDF Database</h1>
-          <p>All scholarly papers used in dataset generation ({total} total)</p>
+          <h1>PDF Database <span style={{ fontSize: '14px', fontWeight: 400, color: 'var(--text-muted)' }}>({total} papers)</span></h1>
+          <p>All scholarly papers used in dataset generation</p>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
           {selectedIds.size > 0 && (
@@ -199,7 +199,7 @@ export default function Papers() {
         <div className="card" style={{ marginBottom: '16px' }}>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
             <div style={{ flex: 1 }}>
-              <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Topic</label>
+              <label style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Topic</label>
               <input
                 type="text"
                 placeholder="e.g. quantum computing, superconductors..."
@@ -211,7 +211,7 @@ export default function Papers() {
               />
             </div>
             <div style={{ width: '100px' }}>
-              <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Max papers</label>
+              <label style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Max papers</label>
               <input
                 type="number"
                 min={1}
@@ -222,7 +222,7 @@ export default function Papers() {
               />
             </div>
             <div style={{ width: '90px' }}>
-              <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Year from</label>
+              <label style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Year from</label>
               <input
                 type="number"
                 min={1900}
@@ -234,7 +234,7 @@ export default function Papers() {
               />
             </div>
             <div style={{ width: '90px' }}>
-              <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Year to</label>
+              <label style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Year to</label>
               <input
                 type="number"
                 min={1900}

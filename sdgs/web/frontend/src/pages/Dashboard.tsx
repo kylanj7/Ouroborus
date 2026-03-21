@@ -38,7 +38,7 @@ function StatCard({ icon: Icon, label, value, sub, gradient, iconColor, glowColo
   return (
     <div
       style={{
-        background: 'rgba(15, 23, 42, 0.5)',
+        background: 'var(--bg-card)',
         backdropFilter: 'blur(20px)',
         WebkitBackdropFilter: 'blur(20px)',
         border: '1px solid rgba(255, 255, 255, 0.06)',
@@ -253,11 +253,11 @@ export default function Dashboard() {
         <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: '16px', marginBottom: '20px' }}>
           {/* Token usage */}
           <div style={{
-            background: 'rgba(15, 23, 42, 0.5)',
+            background: 'var(--bg-card)',
             backdropFilter: 'blur(20px)',
             border: '1px solid rgba(255,255,255,0.06)',
-            borderRadius: '18px',
-            padding: '28px',
+            borderRadius: 'var(--radius-lg)',
+            padding: '22px',
             position: 'relative',
             overflow: 'hidden',
           }}>
@@ -290,11 +290,11 @@ export default function Dashboard() {
 
           {/* QA Distribution -- donut */}
           <div style={{
-            background: 'rgba(15, 23, 42, 0.5)',
+            background: 'var(--bg-card)',
             backdropFilter: 'blur(20px)',
             border: '1px solid rgba(255,255,255,0.06)',
-            borderRadius: '18px',
-            padding: '28px',
+            borderRadius: 'var(--radius-lg)',
+            padding: '22px',
             position: 'relative',
             overflow: 'hidden',
           }}>
@@ -333,11 +333,11 @@ export default function Dashboard() {
       {/* Paper topic distribution */}
       {paperTopicData.length > 0 && (
         <div style={{
-          background: 'rgba(15, 23, 42, 0.5)',
+          background: 'var(--bg-card)',
           backdropFilter: 'blur(20px)',
           border: '1px solid rgba(255,255,255,0.06)',
-          borderRadius: '18px',
-          padding: '28px',
+          borderRadius: 'var(--radius-lg)',
+          padding: '22px',
           position: 'relative',
           overflow: 'hidden',
         }}>

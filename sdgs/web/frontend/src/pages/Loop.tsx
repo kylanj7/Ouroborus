@@ -323,7 +323,7 @@ tally:
               {/* Config Preset */}
               <div style={{ gridColumn: '1 / -1' }}>
                 <label>Run Type<InfoTip text="Production uses full benchmarks, retrieval, and verification. Test uses smaller limits for quick iteration." /></label>
-                <select value={configPath} onChange={e => setConfigPath(e.target.value)} >
+                <select value={configPath} onChange={e => setConfigPath(e.target.value)}>
                   <option value="configs/closed_loop.yaml">Production</option>
                   <option value="configs/closed_loop_test.yaml">Test</option>
                 </select>
@@ -332,11 +332,11 @@ tally:
               {/* Model */}
               <div>
                 <label>Base Model<InfoTip text="HuggingFace model ID or local path. The model that gets fine-tuned each cycle." /></label>
-                <input value={baseModel} onChange={e => setBaseModel(e.target.value)}  />
+                <input value={baseModel} onChange={e => setBaseModel(e.target.value)} />
               </div>
               <div>
                 <label>Context Length<InfoTip text="Max token sequence length per training sample. Longer = more context but more VRAM." /></label>
-                <select value={maxSeqLength} onChange={e => setMaxSeqLength(Number(e.target.value))} >
+                <select value={maxSeqLength} onChange={e => setMaxSeqLength(Number(e.target.value))}>
                   <option value={512}>512</option>
                   <option value={1024}>1024</option>
                   <option value={2048}>2048</option>
@@ -348,15 +348,15 @@ tally:
               </div>
               <div>
                 <label>LoRA Rank<InfoTip text="Rank of the low-rank adaptation matrices. Higher = more trainable params and expressiveness." /></label>
-                <input type="number" value={loraRank} onChange={e => setLoraRank(Number(e.target.value))}  />
+                <input type="number" value={loraRank} onChange={e => setLoraRank(Number(e.target.value))} />
               </div>
               <div>
                 <label>LoRA Alpha<InfoTip text="Scaling factor for LoRA updates. Typically set to 2x the rank. Controls update magnitude." /></label>
-                <input type="number" value={loraAlpha} onChange={e => setLoraAlpha(Number(e.target.value))}  />
+                <input type="number" value={loraAlpha} onChange={e => setLoraAlpha(Number(e.target.value))} />
               </div>
               <div>
                 <label>LoRA Dropout<InfoTip text="Dropout rate on LoRA layers. Prevents overfitting on small datasets. Typical range: 0.05-0.1." /></label>
-                <input type="number" step="0.01" min="0" max="0.5" value={loraDropout} onChange={e => setLoraDropout(Number(e.target.value))}  />
+                <input type="number" step="0.01" min="0" max="0.5" value={loraDropout} onChange={e => setLoraDropout(Number(e.target.value))} />
               </div>
               <div>
                 <label>RS-LoRA<InfoTip text="Rank-Stabilized LoRA. Uses a different scaling factor (alpha/sqrt(r)) so training stays stable when you change rank without re-tuning the learning rate." /></label>
@@ -437,7 +437,7 @@ tally:
               {/* Quantization */}
               <div>
                 <label>Quantization<InfoTip text="Model weight precision. NF4 is optimal for 3090s (24GB). INT8 uses more VRAM but higher fidelity. None loads full precision." /></label>
-                <select value={quantType} onChange={e => setQuantType(e.target.value)} >
+                <select value={quantType} onChange={e => setQuantType(e.target.value)}>
                   <option value="nf4">NF4 (4-bit NormalFloat)</option>
                   <option value="fp4">FP4 (4-bit Float)</option>
                   <option value="int8">INT8 (8-bit)</option>
@@ -448,53 +448,53 @@ tally:
               {/* Training */}
               <div>
                 <label>Learning Rate<InfoTip text="Step size for weight updates. Too high = instability, too low = slow convergence." /></label>
-                <input value={learningRate} onChange={e => setLearningRate(e.target.value)}  />
+                <input value={learningRate} onChange={e => setLearningRate(e.target.value)} />
               </div>
               <div>
                 <label>Epochs<InfoTip text="Number of full passes over the training dataset per cycle." /></label>
-                <input type="number" value={numEpochs} onChange={e => setNumEpochs(Number(e.target.value))}  />
+                <input type="number" value={numEpochs} onChange={e => setNumEpochs(Number(e.target.value))} />
               </div>
               <div>
                 <label>Max Steps<InfoTip text="Hard cap on training steps. Overrides epoch count when set. -1 means no limit (use epochs instead)." /></label>
-                <input type="number" value={maxSteps} onChange={e => setMaxSteps(Number(e.target.value))}  />
+                <input type="number" value={maxSteps} onChange={e => setMaxSteps(Number(e.target.value))} />
               </div>
               <div>
                 <label>Batch Size<InfoTip text="Samples processed per GPU per step. Larger = smoother gradients but more VRAM." /></label>
-                <input type="number" value={batchSize} onChange={e => setBatchSize(Number(e.target.value))}  />
+                <input type="number" value={batchSize} onChange={e => setBatchSize(Number(e.target.value))} />
               </div>
               <div>
                 <label>Grad Accumulation<InfoTip text="Accumulate gradients over N steps before updating. Effective batch = batch_size x this value. The VRAM cheat code." /></label>
-                <input type="number" value={gradAccumSteps} onChange={e => setGradAccumSteps(Number(e.target.value))}  />
+                <input type="number" value={gradAccumSteps} onChange={e => setGradAccumSteps(Number(e.target.value))} />
               </div>
 
               {/* Loop */}
               <div>
                 <label>Target Score (%)<InfoTip text="Benchmark score goal. The loop stops when the model reaches this accuracy." /></label>
-                <input type="number" value={targetScore} onChange={e => setTargetScore(Number(e.target.value))}  />
+                <input type="number" value={targetScore} onChange={e => setTargetScore(Number(e.target.value))} />
               </div>
               <div>
                 <label>Max Cycles<InfoTip text="Upper limit on evolution cycles. The loop stops after this many iterations regardless of score." /></label>
-                <input type="number" value={maxCycles} onChange={e => setMaxCycles(Number(e.target.value))}  />
+                <input type="number" value={maxCycles} onChange={e => setMaxCycles(Number(e.target.value))} />
               </div>
               <div>
                 <label>Gate Threshold (pp)<InfoTip text="Minimum improvement in percentage points required to pass the quality gate and keep training." /></label>
-                <input type="number" step="0.1" value={gateThreshold} onChange={e => setGateThreshold(Number(e.target.value))}  />
+                <input type="number" step="0.1" value={gateThreshold} onChange={e => setGateThreshold(Number(e.target.value))} />
               </div>
               <div>
                 <label>Early Stop Patience<InfoTip text="Stop the loop after this many consecutive gate failures (no improvement). Prevents wasting compute on a plateaued model." /></label>
-                <input type="number" min="1" max="20" value={earlyStoppingPatience} onChange={e => setEarlyStoppingPatience(Number(e.target.value))}  />
+                <input type="number" min="1" max="20" value={earlyStoppingPatience} onChange={e => setEarlyStoppingPatience(Number(e.target.value))} />
               </div>
               <div>
                 <label>Min Pairs / Cycle<InfoTip text="Minimum Q&A pairs to generate per cycle. More pairs = better coverage but longer curation." /></label>
-                <input type="number" value={minPairs} onChange={e => setMinPairs(Number(e.target.value))}  />
+                <input type="number" value={minPairs} onChange={e => setMinPairs(Number(e.target.value))} />
               </div>
               <div>
                 <label>Tally Model<InfoTip text="LLM used by the tally agent to diagnose benchmark failures and identify weak knowledge areas." /></label>
-                <input value={tallyModel} onChange={e => setTallyModel(e.target.value)}  />
+                <input value={tallyModel} onChange={e => setTallyModel(e.target.value)} />
               </div>
               <div>
                 <label>Loss Function<InfoTip text="Objective function for training. Focal loss down-weights easy samples to focus on hard examples." /></label>
-                <select value={lossFunction} onChange={e => setLossFunction(e.target.value)} >
+                <select value={lossFunction} onChange={e => setLossFunction(e.target.value)}>
                   <option value="cross_entropy">CrossEntropyLoss</option>
                   <option value="nll">NLLLoss</option>
                   <option value="focal">Focal Loss</option>
@@ -518,11 +518,11 @@ tally:
               </div>
               <div>
                 <label>Label Smoothing<InfoTip text="Softens target distribution by mixing in uniform probability. Reduces overconfidence." /></label>
-                <input type="number" step="0.01" min="0" max="0.5" value={labelSmoothing} onChange={e => setLabelSmoothing(Number(e.target.value))}  />
+                <input type="number" step="0.01" min="0" max="0.5" value={labelSmoothing} onChange={e => setLabelSmoothing(Number(e.target.value))} />
               </div>
               <div>
                 <label>Optimizer<InfoTip text="Algorithm for updating weights. adamw_8bit saves VRAM via quantized optimizer states." /></label>
-                <select value={optimizer} onChange={e => setOptimizer(e.target.value)} >
+                <select value={optimizer} onChange={e => setOptimizer(e.target.value)}>
                   <optgroup label="AdamW">
                     <option value="adamw_torch">adamw_torch</option>
                     <option value="adamw_torch_fused">adamw_torch_fused</option>
@@ -567,7 +567,7 @@ tally:
               </div>
               <div>
                 <label>LR Scheduler<InfoTip text="Controls how learning rate changes over training. Cosine decays smoothly to zero." /></label>
-                <select value={lrScheduler} onChange={e => setLrScheduler(e.target.value)} >
+                <select value={lrScheduler} onChange={e => setLrScheduler(e.target.value)}>
                   <option value="cosine">Cosine</option>
                   <option value="linear">Linear</option>
                   <option value="constant">Constant</option>
@@ -580,32 +580,32 @@ tally:
               </div>
               <div>
                 <label>Weight Decay<InfoTip text="L2 regularization penalty. Prevents large weights and reduces overfitting." /></label>
-                <input type="number" step="0.01" min="0" max="1" value={weightDecay} onChange={e => setWeightDecay(Number(e.target.value))}  />
+                <input type="number" step="0.01" min="0" max="1" value={weightDecay} onChange={e => setWeightDecay(Number(e.target.value))} />
               </div>
 
               {/* Stability & Monitoring */}
               <div>
                 <label>Warmup Ratio<InfoTip text="Fraction of total steps for learning rate warmup. Prevents early training instability. 3-10% is standard." /></label>
-                <input type="number" step="0.01" min="0" max="0.5" value={warmupRatio} onChange={e => setWarmupRatio(Number(e.target.value))}  />
+                <input type="number" step="0.01" min="0" max="0.5" value={warmupRatio} onChange={e => setWarmupRatio(Number(e.target.value))} />
               </div>
               <div>
                 <label>Grad Clipping<InfoTip text="Max gradient norm (max_grad_norm). Clips large gradients to prevent NaN loss and training instability." /></label>
-                <input type="number" step="0.1" min="0" max="5" value={maxGradNorm} onChange={e => setMaxGradNorm(Number(e.target.value))}  />
+                <input type="number" step="0.1" min="0" max="5" value={maxGradNorm} onChange={e => setMaxGradNorm(Number(e.target.value))} />
               </div>
               <div>
                 <label>NEFTune Alpha<InfoTip text="Noise magnitude added to embeddings during training. Improves generalization and instruction-following. Set 0 to disable, 5-15 is typical." /></label>
                 <input type="number" step="1" min="0" value={neftuneNoiseAlpha ?? 0} onChange={e => {
                   const v = Number(e.target.value)
                   setNeftuneNoiseAlpha(v > 0 ? v : null)
-                }}  />
+                }} />
               </div>
               <div>
                 <label>Logging Steps<InfoTip text="Log metrics every N steps. Set to 1 for real-time loss monitoring, higher for less noise in logs." /></label>
-                <input type="number" min="1" value={loggingSteps} onChange={e => setLoggingSteps(Number(e.target.value))}  />
+                <input type="number" min="1" value={loggingSteps} onChange={e => setLoggingSteps(Number(e.target.value))} />
               </div>
               <div>
                 <label>Eval Steps<InfoTip text="Run evaluation every N steps. Provides validation loss to detect overfitting during training." /></label>
-                <input type="number" min="1" value={evalSteps} onChange={e => setEvalSteps(Number(e.target.value))}  />
+                <input type="number" min="1" value={evalSteps} onChange={e => setEvalSteps(Number(e.target.value))} />
               </div>
 
               {/* Seed Dataset */}
@@ -614,7 +614,7 @@ tally:
                 <select
                   value={seedDatasetId ?? ''}
                   onChange={e => setSeedDatasetId(e.target.value ? Number(e.target.value) : null)}
-                                 >
+                >
                   <option value="">Select a dataset...</option>
                   {datasets.map(d => (
                     <option key={d.id} value={d.id}>
