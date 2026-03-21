@@ -31,7 +31,6 @@ export default function Loop() {
   const [minPairs, setMinPairs] = useState(1000)
   const [tallyModel, setTallyModel] = useState('gpt-oss:120b')
   const [seedDatasetId, setSeedDatasetId] = useState<number | null>(null)
-  const canStart = !isRunning && !store.loading && seedDatasetId !== null
   const [datasets, setDatasets] = useState<Dataset[]>([])
 
   useEffect(() => {
@@ -58,6 +57,7 @@ export default function Loop() {
   }, [logs.length, showLogs])
 
   const isRunning = store.status === 'running'
+  const canStart = !isRunning && !store.loading && seedDatasetId !== null
 
   const baseVersion = store.cycles.filter(c => (c as any).gate_passed === true).length
 
