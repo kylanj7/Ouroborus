@@ -37,49 +37,42 @@ Full-stack platform for synthetic dataset generation, model fine-tuning, evaluat
 <tr>
 <td width="50%">
 
-**Knowledge Galaxy**
-3D force-directed visualization of papers, datasets, and Q&A relationships with topic clustering
+**Dashboard**
+Pipeline overview with token usage, GPU energy, generation time, QA distribution, and PDFs by category
 
-![Galaxy Visualizer](docs/images/galaxy-visualizer.png)
+![Dashboard](docs/images/dashboard.png)
 </td>
 <td width="50%">
 
-**Evolution Loop**
-Autonomous closed-loop training with benchmark evaluation, tally diagnosis, and quality gates
+**PDF Database**
+Search and scrape papers from arXiv, Semantic Scholar, OpenAlex, and CORE with bulk generation
 
-![Evolution Loop](docs/images/evolution-loop.png)
-</td>
-</tr>
-<tr>
-<td width="50%">
-
-**Dataset Generation**
-Multi-provider Q&A generation from scholarly papers with live progress streaming
-
-![Dataset Generation](docs/images/dataset-generation.png)
-</td>
-<td width="50%">
-
-**Training Configuration**
-LoRA fine-tuning with full hyperparameter control, focal loss, and live metrics
-
-![Training Config](docs/images/training-config.png)
+![PDF Database](docs/images/pdf-database.png)
 </td>
 </tr>
 <tr>
 <td width="50%">
 
-**Knowledge Graph**
-GPU-instanced 3D rendering of paper-dataset-QA relationships
+**Create Dataset**
+Multi-provider Q&A generation with topic input, model selection, temperature, and system prompt control
 
-![Knowledge Graph](docs/images/knowledge-graph.png)
+![Create Dataset](docs/images/create-dataset.png)
 </td>
 <td width="50%">
 
-**Loop Running**
-Real-time monitoring with stage pipeline, benchmark charts, and tally diagnosis
+**Knowledge Base**
+ChromaDB-backed semantic search and RAG chat over 5,500+ indexed PDFs with 500K chunks
 
-![Loop Running](docs/images/loop-running.png)
+![Knowledge Base](docs/images/knowledge-base.png)
+</td>
+</tr>
+<tr>
+<td colspan="2">
+
+**QA Visualizer**
+Interactive knowledge graph with paper details, Q&A pair browsing, and citation links
+
+![QA Visualizer](docs/images/qa-visualizer.png)
 </td>
 </tr>
 </table>
