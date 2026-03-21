@@ -68,49 +68,57 @@ export default function Loop() {
   const canStart = !isRunning && !store.loading && seedDatasetId !== null
 
   const generateYaml = () => {
-    const lines = [
-      `# Training Configuration`,
-      `# Generated from Ouroboros Evolution Loop`,
-      ``,
-      `# Model`,
-      `base_model: "${baseModel}"`,
-      `max_seq_length: ${maxSeqLength}`,
-      `lora_rank: ${loraRank}`,
-      `lora_alpha: ${loraAlpha}`,
-      ``,
-      `# Training`,
-      `per_device_train_batch_size: ${batchSize}`,
-      `gradient_accumulation_steps: ${gradAccumSteps}`,
-      `num_train_epochs: ${numEpochs}`,
-      `learning_rate: ${learningRate}`,
-      `optim: "${optimizer}"`,
-      `lr_scheduler_type: "${lrScheduler}"`,
-      `weight_decay: ${weightDecay}`,
-      `warmup_steps: ${warmupSteps || 100}`,
-      `max_grad_norm: ${maxGradNorm || 0.3}`,
-      ``,
-      `# Loss`,
-      `loss_function: "${lossFunction}"`,
-      `label_smoothing_factor: ${labelSmoothing}`,
-      ``,
-      `# Loop`,
-      `target_score: ${targetScore}`,
-      `max_cycles: ${maxCycles}`,
-      `gate_threshold: ${gateThreshold}`,
-      `min_pairs_per_cycle: ${minPairs}`,
-      `tally_model: "${tallyModel}"`,
-      ``,
-      `# Precision`,
-      `auto_precision: true`,
-      ``,
-      `# Logging`,
-      `logging_steps: 1`,
-      ``,
-      `# WandB`,
-      `wandb_enabled: true`,
-      `wandb_project_template: "{dataset_name}-{model_name}"`,
-    ]
-    return lines.join('\n')
+    // Format learning rate as scientific notation if small
+    const lrNum = parseFloat(learningRate)
+    const lrStr = lrNum < 0.001 ? lrNum.toExponential(1) : String(lrNum)
+
+    return `---
+# Ouroboros Evolution Loop - Training Configuration
+
+# Model
+training:
+  base_model: "${baseModel}"
+  max_seq_length: ${maxSeqLength}
+  lora_rank: ${loraRank}
+  lora_alpha: ${loraAlpha}
+
+# Training Hyperparameters
+  per_device_train_batch_size: ${batchSize}
+  gradient_accumulation_steps: ${gradAccumSteps}
+  num_train_epochs: ${numEpochs}
+  learning_rate: ${lrStr}
+  optim: "${optimizer}"
+  lr_scheduler_type: "${lrScheduler}"
+  weight_decay: ${weightDecay}
+  warmup_steps: ${warmupSteps}
+  max_grad_norm: ${maxGradNorm}
+
+# Loss Function
+  loss_function: "${lossFunction}"
+  label_smoothing_factor: ${labelSmoothing}
+
+# Precision
+  auto_precision: true
+
+# Logging & WandB
+  logging_steps: 1
+  wandb_enabled: true
+  wandb_project_template: "{dataset_name}-{model_name}"
+
+# Evolution Loop
+termination:
+  target_score: ${targetScore}
+  max_cycles: ${maxCycles}
+
+gate:
+  improvement_threshold: ${gateThreshold}
+
+curation:
+  min_pairs_per_cycle: ${minPairs}
+
+tally:
+  model: "${tallyModel}"
+`
   }
 
   const baseVersion = store.cycles.filter(c => (c as any).gate_passed === true).length
@@ -460,7 +468,7 @@ export default function Loop() {
               style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600, padding: 0, display: 'flex', alignItems: 'center', gap: 6 }}
             >
               {showYaml ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-              Generated YAML
+              Generate YAML
             </button>
             {showYaml && (
               <button
