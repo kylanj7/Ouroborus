@@ -18,6 +18,7 @@ _cl_logs: dict[str, list[dict]] = {}
 _cl_lock: threading.Lock = threading.Lock()
 _active_loop_id: str | None = None
 _cancel_event: threading.Event | None = None
+_active_thread: threading.Thread | None = None
 
 # Per-loop incrementing event ID counter
 _cl_event_counters: dict[str, int] = {}
@@ -153,21 +154,41 @@ def start_closed_loop(config_path: str | None = None, seed_dataset_path: str | N
                     _cancel_event = None
             finish_cl_stream(loop_id)
 
+    global _active_thread
     thread = threading.Thread(target=_run, name=f"closed-loop-{loop_id}", daemon=True)
     thread.start()
+    _active_thread = thread
     return loop_id
 
 
 def force_cancel_loop() -> str | None:
-    """Force-cancel the active loop by setting the cancel event and clearing state."""
-    global _active_loop_id, _cancel_event
+    """Force-cancel the active loop by killing the thread and clearing state."""
+    global _active_loop_id, _cancel_event, _active_thread
+    import ctypes
 
     with _cl_lock:
         old_id = _active_loop_id
+        thread = _active_thread
         if _cancel_event is not None:
             _cancel_event.set()
         _active_loop_id = None
         _cancel_event = None
+        _active_thread = None
+
+    # Force-raise SystemExit in the thread to kill it
+    if thread is not None and thread.is_alive():
+        try:
+            tid = thread.ident
+            if tid is not None:
+                res = ctypes.pythonapi.PyThreadState_SetAsyncExc(
+                    ctypes.c_ulong(tid), ctypes.py_object(SystemExit)
+                )
+                if res > 1:
+                    # Reset if it affected more than one thread
+                    ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(tid), None)
+                log.info("[closed-loop:%s] Killed thread %s", old_id, tid)
+        except Exception as e:
+            log.warning("[closed-loop:%s] Could not kill thread: %s", old_id, e)
 
     if old_id:
         log.info("[closed-loop:%s] Force-cancelled", old_id)
