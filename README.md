@@ -146,112 +146,111 @@ The closed loop is an autonomous system that teaches a small model (7-8B paramet
 ### The Cycle
 
 ```
-                          +------------------+
-                          |  [0] BASELINE    |  Run benchmarks on the unmodified model.
-                          |  Establish       |  This is the starting score -- the number
-                          |  starting scores |  to beat.
-                          +--------+---------+
-                                   |
-                    +--------------v---------------+
-                    |  [1] TALLY                    |  A LangChain agent (gpt-oss:120b via
-                    |  Diagnose failures            |  Ollama) reads every question the model
-                    |                               |  got wrong. It doesn't just count
-                    |  "Why did the model fail?"    |  failures -- it clusters them by
-                    |  "What knowledge is missing?" |  knowledge gap. Example: "Model confuses
-                    |  "What should we teach it?"   |  T1/T2 decoherence timescales" rather
-                    |                               |  than just "quantum physics is weak."
-                    |  Outputs: failure clusters,   |
-                    |  search queries, generation   |  It also avoids re-targeting gaps that
-                    |  guidance                     |  were already fixed in prior cycles.
-                    +--------------+----------------+
-                                   |
-                    +--------------v---------------+
-                    |  [2] RETRIEVE                 |  Semantic Scholar and arXiv APIs
-                    |  Find papers on weak areas    |  retrieve papers matching the tally
-                    |                               |  agent's search queries. Full text
-                    |  Sources:                     |  is extracted from PDFs via PyMuPDF.
-                    |  - Semantic Scholar API        |
-                    |  - arXiv API                  |  Only papers relevant to the diagnosed
-                    |                               |  knowledge gaps are retrieved.
-                    +--------------+----------------+
-                                   |
-                    +--------------v---------------+
-                    |  [3] CURATE                   |  gpt-oss:120b reads the papers and
-                    |  Generate chain-of-thought    |  generates reasoning training pairs.
-                    |  training data                |  Every response includes a full
-                    |                               |  derivation chain, not just an answer.
-                    |  3-layer verification:        |
-                    |  [A] Citation matching --     |  Each generated pair is verified:
-                    |      inline citations must    |  citations must resolve to real paper
-                    |      resolve to real content  |  content, NLI confirms no contradictions,
-                    |  [B] NLI entailment --        |  and embedding similarity ensures each
-                    |      DeBERTa checks claims    |  reasoning step is grounded in the
-                    |      against paper text       |  source material.
-                    |  [C] Chunk tracing --         |
-                    |      embedding similarity     |  Pairs that fail any check are discarded.
-                    |      (MiniLM-L6-v2) confirms  |  1,000+ verified pairs per cycle minimum,
-                    |      grounding                |  no upper cap.
-                    +--------------+----------------+
-                                   |
-                    +--------------v---------------+
-                    |  [4] TRAIN                    |  LoRA fine-tuning (4-bit quantized,
-                    |  LoRA fine-tune on curated    |  nf4) on the curated dataset.
-                    |  dataset                      |  3 epochs, cosine LR schedule.
-                    |                               |  Fresh LoRA adapter each cycle --
-                    |                               |  no adapter stacking.
-                    +--------------+----------------+
-                                   |
-                    +--------------v---------------+
-                    |  [5] MERGE                    |  The LoRA adapter is merged into the
-                    |  Merge adapter into base      |  base model weights. After this, the
-                    |  model weights                |  adapter is gone -- its knowledge is
-                    |                               |  baked permanently into the model.
-                    |  merge_and_unload() -> save   |
-                    |  as HF format checkpoint      |  The merged model is saved as a
-                    |                               |  versioned checkpoint (base-v1, v2...).
-                    +--------------+----------------+
-                                   |
-                    +--------------v---------------+
-                    |  [6] EVALUATE                 |  The merged model is benchmarked on
-                    |  Benchmark the merged model   |  the same tests used for baseline.
-                    |                               |
-                    |  Benchmarks (via lm-eval):    |  GPQA Diamond: PhD-level science
-                    |  - GPQA Diamond               |  reasoning. Used by OpenAI, Anthropic,
-                    |  - MMLU college_physics       |  and Google to measure frontier model
-                    |  - MMLU conceptual_physics    |  scientific capability.
-                    |  - SciBench                   |
-                    |                               |  MMLU: Massive Multitask Language
-                    |  Gate metric:                 |  Understanding. Standard benchmark
-                    |  average of all 4 scores      |  for knowledge across 57 subjects.
-                    |                               |  We use the physics subsets.
-                    |                               |
-                    |                               |  SciBench: University-level science
-                    |                               |  calculation problems requiring
-                    |                               |  step-by-step reasoning.
-                    +--------------+----------------+
-                                   |
-                    +--------------v---------------+
-                    |  [7] GATE                     |  Did the average benchmark score
-                    |  Quality control              |  improve by >= 0.5 percentage points?
-                    |                               |
-                    |  >= 0.5pp improvement:        |  YES: Keep the merged model. It becomes
-                    |    KEEP merged model           |  the new base for the next cycle.
-                    |    -> new base for next cycle  |  Old checkpoints cleaned up (keep
-                    |                               |  last 5 + original).
-                    |  < 0.5pp or regression:       |
-                    |    ROLLBACK                   |  NO: Delete the merged model. Roll back
-                    |    -> delete merged model      |  to the previous checkpoint. The tally
-                    |    -> revert to last good      |  agent will diagnose differently next
-                    |       checkpoint               |  cycle and generate different data.
-                    |                               |
-                    |  3 consecutive failures:      |  FAIL CAP: If the same base model fails
-                    |    -> email analysis report    |  3 times in a row, email a diagnostic
-                    |    -> pause for human review   |  report and pause for human review.
-                    +--------------+----------------+
-                                   |
-                                   |  Loop back to [1] TALLY
-                                   |  with the new (or same) base model
-                                   v
+                       +--------------------+
+                       |  [0] BASELINE      |  Run benchmarks on the unmodified model.
+                       |  Establish         |  This is the starting score -- the number
+                       |  starting scores   |  to beat.
+                       +---------+----------+
+                                 |
+          +----------------------v-----------------------+
+          |  [1] TALLY                                    |  A LangChain agent (gpt-oss:120b via
+          |  Diagnose failures                            |  Ollama) reads every question the model
+          |                                               |  got wrong. It doesn't just count
+     ^    |  "Why did the model fail?"                    |  failures -- it clusters them by
+     |    |  "What knowledge is missing?"                 |  knowledge gap. Example: "Model confuses
+     |    |  "What should we teach it?"                   |  T1/T2 decoherence timescales" rather
+     |    |                                               |  than just "quantum physics is weak."
+     |    |  Outputs: failure clusters, search queries,   |
+     |    |  generation guidance                          |  It also avoids re-targeting gaps that
+     |    |                                               |  were already fixed in prior cycles.
+     |    +----------------------+-----------------------+
+     |                           |
+     |    +----------------------v-----------------------+
+     |    |  [2] RETRIEVE                                 |  Semantic Scholar and arXiv APIs
+     |    |  Find papers on weak areas                    |  retrieve papers matching the tally
+     |    |                                               |  agent's search queries. Full text
+     |    |  Sources:                                     |  is extracted from PDFs via PyMuPDF.
+     |    |  - Semantic Scholar API                       |
+     |    |  - arXiv API                                  |  Only papers relevant to the diagnosed
+     |    |                                               |  knowledge gaps are retrieved.
+     |    +----------------------+-----------------------+
+     |                           |
+     |    +----------------------v-----------------------+
+     |    |  [3] CURATE                                   |  gpt-oss:120b reads the papers and
+     |    |  Generate chain-of-thought training data      |  generates reasoning training pairs.
+     |    |                                               |  Every response includes a full
+     |    |  3-layer verification:                        |  derivation chain, not just an answer.
+     |    |  [A] Citation matching --                     |
+     |    |      inline citations must resolve            |  Each generated pair is verified:
+     |    |      to real content                          |  citations must resolve to real paper
+     |    |  [B] NLI entailment --                        |  content, NLI confirms no contradictions,
+     |    |      DeBERTa checks claims against            |  and embedding similarity ensures each
+     |    |      paper text                               |  reasoning step is grounded in the
+     |    |  [C] Chunk tracing --                         |  source material.
+     |    |      embedding similarity (MiniLM-L6-v2)      |
+     |    |      confirms grounding                       |  Pairs that fail any check are discarded.
+     |    |                                               |  1,000+ verified pairs per cycle minimum,
+     |    |                                               |  no upper cap.
+     |    +----------------------+-----------------------+
+     |                           |
+     |    +----------------------v-----------------------+
+     |    |  [4] TRAIN                                    |  LoRA fine-tuning (4-bit quantized,
+     |    |  LoRA fine-tune on curated dataset            |  nf4) on the curated dataset.
+     |    |                                               |  3 epochs, cosine LR schedule.
+     |    |                                               |  Fresh LoRA adapter each cycle --
+     |    |                                               |  no adapter stacking.
+     |    +----------------------+-----------------------+
+     |                           |
+     |    +----------------------v-----------------------+
+     |    |  [5] MERGE                                    |  The LoRA adapter is merged into the
+     |    |  Merge adapter into base model weights        |  base model weights. After this, the
+     |    |                                               |  adapter is gone -- its knowledge is
+     |    |  merge_and_unload() -> save                   |  baked permanently into the model.
+     |    |  as HF format checkpoint                      |
+     |    |                                               |  The merged model is saved as a
+     |    |                                               |  versioned checkpoint (base-v1, v2...).
+     |    +----------------------+-----------------------+
+     |                           |
+     |    +----------------------v-----------------------+
+     |    |  [6] EVALUATE                                 |  The merged model is benchmarked on
+     |    |  Benchmark the merged model                   |  the same tests used for baseline.
+     |    |                                               |
+     |    |  Benchmarks (via lm-eval):                    |  GPQA Diamond: PhD-level science
+     |    |  - GPQA Diamond                               |  reasoning. Used by OpenAI, Anthropic,
+     |    |  - MMLU college_physics                       |  and Google to measure frontier model
+     |    |  - MMLU conceptual_physics                    |  scientific capability.
+     |    |  - SciBench                                   |
+     |    |                                               |  MMLU: Massive Multitask Language
+     |    |  Gate metric:                                 |  Understanding. Standard benchmark
+     |    |  average of all 4 scores                      |  for knowledge across 57 subjects.
+     |    |                                               |  We use the physics subsets.
+     |    |                                               |
+     |    |                                               |  SciBench: University-level science
+     |    |                                               |  calculation problems requiring
+     |    |                                               |  step-by-step reasoning.
+     |    +----------------------+-----------------------+
+     |                           |
+     |    +----------------------v-----------------------+
+     |    |  [7] GATE                                     |  Did the average benchmark score
+     |    |  Quality control                              |  improve by >= 0.5 percentage points?
+     |    |                                               |
+     |    |  >= 0.5pp improvement:                        |  YES: Keep the merged model. It becomes
+     |    |    KEEP merged model                          |  the new base for the next cycle.
+     |    |    -> new base for next cycle                 |  Old checkpoints cleaned up (keep
+     |    |                                               |  last 5 + original).
+     |    |  < 0.5pp or regression:                       |
+     |    |    ROLLBACK                                   |  NO: Delete the merged model. Roll back
+     |    |    -> delete merged model                     |  to the previous checkpoint. The tally
+     |    |    -> revert to last good checkpoint          |  agent will diagnose differently next
+     |    |                                               |  cycle and generate different data.
+     |    |  3 consecutive failures:                      |
+     |    |    -> email analysis report                   |  FAIL CAP: If the same base model fails
+     |    |    -> pause for human review                  |  3 times in a row, email a diagnostic
+     |    |                                               |  report and pause for human review.
+     |    +----------------------+-----------------------+
+     |                           |
+     |                           |  Loop back to [1] TALLY
+     +---------------------------+  with the new (or same) base model
 ```
 
 ### Merge-and-Continue
