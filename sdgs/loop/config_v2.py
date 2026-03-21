@@ -27,9 +27,9 @@ class GateConfig:
 @dataclass
 class TrainingStrategyConfig:
     strategy: str = "merge-and-continue"
-    base_model: str = "Qwen/Qwen2.5-7B-Instruct"
+    base_model: str = "Qwen/Qwen3.5-9B"
     preserve_original: bool = True
-    model_config: str = "qwen2.5-7b-instruct"
+    model_config: str = "qwen3.5-9b"
     training_config: str = "default"
     checkpoint_dir: str = "models/merged/"
     max_checkpoints: int = 5

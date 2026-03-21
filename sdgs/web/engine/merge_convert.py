@@ -7,7 +7,7 @@ Usage:
     from sdgs.web.engine.merge_convert import merge_and_convert
     gguf_path = merge_and_convert(
         adapter_path="outputs/run-name/final_adapter",
-        base_model="Qwen/Qwen2.5-14B-Instruct",
+        base_model="Qwen/Qwen3.5-9B",
     )
 """
 
@@ -56,7 +56,7 @@ def merge_lora(
 
     Args:
         adapter_path: Path to the saved LoRA adapter
-        base_model: HuggingFace model name (e.g. "Qwen/Qwen2.5-14B-Instruct")
+        base_model: HuggingFace model name (e.g. "Qwen/Qwen3.5-9B")
         output_dir: Where to save the merged model
 
     Returns:
@@ -237,7 +237,7 @@ def merge_and_convert(
     run_metadata = load_run_metadata(adapter_path)
 
     if not base_model:
-        base_model = run_metadata.get("base_model", "Qwen/Qwen2.5-14B-Instruct")
+        base_model = run_metadata.get("base_model", "Qwen/Qwen3.5-9B")
         print(f"Auto-detected base model: {base_model}")
 
     if not output_name:

@@ -201,7 +201,7 @@ export default function PushModel() {
                     <label>Base Model</label>
                     <input
                       type="text"
-                      placeholder="Qwen/Qwen2.5-14B-Instruct"
+                      placeholder="Qwen/Qwen3.5-9B"
                       value={baseModel}
                       onChange={(e) => setBaseModel(e.target.value)}
                       disabled={submitting}

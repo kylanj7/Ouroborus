@@ -3,8 +3,8 @@ gate:
   fail_cap: 2
 
 training:
-  base_model: "Qwen/Qwen2.5-7B-Instruct"
-  model_config: "qwen2.5-7b-instruct"
+  base_model: "Qwen/Qwen3.5-9B"
+  model_config: "qwen3.5-9b"
   training_config: "quick_test"
   checkpoint_dir: "models/merged-test/"
   max_checkpoints: 2

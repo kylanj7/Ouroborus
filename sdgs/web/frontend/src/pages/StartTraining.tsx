@@ -28,12 +28,12 @@ export default function StartTraining() {
   // Model config
   const [modelSource, setModelSource] = useState<'local' | 'huggingface'>('huggingface')
   const [localModels, setLocalModels] = useState<ArtifactEntry[]>([])
-  const [baseModel, setBaseModel] = useState('Qwen/Qwen2.5-14B-Instruct')
-  const [hfModelId, setHfModelId] = useState('Qwen/Qwen2.5-14B-Instruct')
+  const [baseModel, setBaseModel] = useState('Qwen/Qwen3.5-9B')
+  const [hfModelId, setHfModelId] = useState('Qwen/Qwen3.5-9B')
   const [downloadingModel, setDownloadingModel] = useState(false)
   const [downloadProgress, setDownloadProgress] = useState('')
   const [downloadPercent, setDownloadPercent] = useState(-1)
-  const [modelSize, setModelSize] = useState('14B')
+  const [modelSize, setModelSize] = useState('9B')
 
   // LoRA config
   const [loraRank, setLoraRank] = useState(64)
@@ -397,7 +397,7 @@ export default function StartTraining() {
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
               <input
                 type="text"
-                placeholder="Qwen/Qwen2.5-14B-Instruct"
+                placeholder="Qwen/Qwen3.5-9B"
                 value={hfModelId}
                 onChange={(e) => setHfModelId(e.target.value)}
                 disabled={submitting || downloadingModel}

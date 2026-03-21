@@ -39,9 +39,9 @@ def test_load_default_config():
 
     # TrainingStrategyConfig
     assert cfg.training.strategy == "merge-and-continue"
-    assert cfg.training.base_model == "Qwen/Qwen2.5-7B-Instruct"
+    assert cfg.training.base_model == "Qwen/Qwen3.5-9B"
     assert cfg.training.preserve_original is True
-    assert cfg.training.model_config == "qwen2.5-7b-instruct"
+    assert cfg.training.model_config == "qwen3.5-9b"
     assert cfg.training.training_config == "default"
     assert cfg.training.checkpoint_dir == "models/merged/"
     assert cfg.training.max_checkpoints == 5

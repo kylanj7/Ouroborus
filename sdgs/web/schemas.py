@@ -269,7 +269,7 @@ class PaperDetail(BaseModel):
 class StartTrainingRequest(BaseModel):
     dataset_id: int | None = None
     dataset_path: str | None = None
-    base_model: str = "Qwen/Qwen2.5-14B-Instruct"
+    base_model: str = "Qwen/Qwen3.5-9B"
     model_size: str = "14B"
     lora_rank: int = 64
     lora_alpha: int = 128
@@ -408,7 +408,7 @@ class PushModelRequest(BaseModel):
     gguf_path: str | None = None
     merged_model_dir: str | None = None
     private: bool = True
-    base_model: str = "Qwen/Qwen2.5-14B-Instruct"
+    base_model: str = "Qwen/Qwen3.5-9B"
     description: str = ""
     dataset: str = ""
     author: str = ""

@@ -20,7 +20,7 @@ from huggingface_hub import HfApi, create_repo, upload_file, upload_folder
 
 def _create_model_card(
     repo_id: str,
-    base_model: str = "Qwen/Qwen2.5-14B-Instruct",
+    base_model: str = "Qwen/Qwen3.5-9B",
     gguf_name: Optional[str] = None,
     has_merged: bool = False,
     description: str = "",
@@ -123,7 +123,7 @@ def push_gguf(
     repo_id: str,
     private: bool = True,
     token: Optional[str] = None,
-    base_model: str = "Qwen/Qwen2.5-14B-Instruct",
+    base_model: str = "Qwen/Qwen3.5-9B",
     description: str = "",
     dataset: str = "",
     author: str = "",
@@ -208,7 +208,7 @@ def push_merged(
     repo_id: str,
     private: bool = True,
     token: Optional[str] = None,
-    base_model: str = "Qwen/Qwen2.5-14B-Instruct",
+    base_model: str = "Qwen/Qwen3.5-9B",
     description: str = "",
     dataset: str = "",
     author: str = "",

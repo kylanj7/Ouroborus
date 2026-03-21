@@ -17,7 +17,7 @@ export default function Loop() {
 
   // Config form state
   const [configPath, setConfigPath] = useState('configs/closed_loop.yaml')
-  const [baseModel, setBaseModel] = useState('Qwen/Qwen2.5-7B-Instruct')
+  const [baseModel, setBaseModel] = useState('Qwen/Qwen3.5-9B')
   const [learningRate, setLearningRate] = useState('1e-5')
   const [numEpochs, setNumEpochs] = useState(3)
   const [batchSize, setBatchSize] = useState(4)

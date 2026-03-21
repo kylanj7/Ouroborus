@@ -324,13 +324,13 @@ def create_formatting_function(dataset_config: Dict):
 
 
 # ---------------------------------------------------------------------------
-# Defaults (matching Qwen 2.5 14B — used when no config is provided)
+# Defaults (matching Qwen 3.5 9B — used when no config is provided)
 # ---------------------------------------------------------------------------
 
 DEFAULT_MODEL_CONFIG: Dict[str, Any] = {
-    "name": "Qwen 2.5 14B Instruct",
-    "model_name": "Qwen/Qwen2.5-14B-Instruct",
-    "size": "14B",
+    "name": "Qwen 3.5 9B",
+    "model_name": "Qwen/Qwen3.5-9B",
+    "size": "9B",
     "max_seq_length": 2048,
     "quantization": {
         "load_in_4bit": True,

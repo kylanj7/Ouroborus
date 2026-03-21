@@ -7,9 +7,9 @@ gate:
 
 training:
   strategy: "merge-and-continue"
-  base_model: "Qwen/Qwen2.5-7B-Instruct"
+  base_model: "Qwen/Qwen3.5-9B"
   preserve_original: true
-  model_config: "qwen2.5-7b-instruct"
+  model_config: "qwen3.5-9b"
   training_config: "default"
   checkpoint_dir: "models/merged/"
   max_checkpoints: 5
