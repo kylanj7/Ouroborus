@@ -589,6 +589,22 @@ export interface StartTrainingRequest {
 export const startTraining = (data: StartTrainingRequest) =>
   request<TrainingRun>('/training/start', { method: 'POST', body: JSON.stringify(data) })
 
+export const uploadTrainingYaml = async (file: File): Promise<{ name: string; data: Record<string, any> }> => {
+  const token = localStorage.getItem('token')
+  const formData = new FormData()
+  formData.append('file', file)
+  const resp = await fetch(`${BASE_URL}/training/upload-yaml`, {
+    method: 'POST',
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: formData,
+  })
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ detail: 'Upload failed' }))
+    throw new Error(err.detail || 'Upload failed')
+  }
+  return resp.json()
+}
+
 export const getTrainingRuns = (page = 1) =>
   request<TrainingRunListResponse>(`/training?page=${page}`)
 

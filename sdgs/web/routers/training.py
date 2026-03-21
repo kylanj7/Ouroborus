@@ -6,7 +6,7 @@ import re
 import threading
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy.orm import Session
 
@@ -38,6 +38,45 @@ from ..schemas import (
 from ..services.job_runner import submit_training_job, cancel_training_job
 
 router = APIRouter()
+
+
+# -------------------------------------------------------------------------
+# YAML config upload
+# -------------------------------------------------------------------------
+
+@router.post("/upload-yaml")
+async def upload_training_yaml(
+    file: UploadFile = File(...),
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Upload a YAML training config file.
+
+    Saves the file to the training configs directory so it appears in
+    the config dropdown, and returns the parsed contents as JSON.
+    """
+    import yaml
+
+    if not file.filename or not file.filename.endswith(('.yaml', '.yml')):
+        raise HTTPException(400, "File must be a .yaml or .yml file")
+
+    content = await file.read()
+    try:
+        data = yaml.safe_load(content.decode("utf-8"))
+    except Exception as e:
+        raise HTTPException(400, f"Invalid YAML: {e}")
+
+    if not isinstance(data, dict):
+        raise HTTPException(400, "YAML must be a mapping (key: value)")
+
+    # Save to training configs directory
+    from ..engine.trainer import CONFIGS_DIR
+    training_configs_dir = CONFIGS_DIR / "training"
+    training_configs_dir.mkdir(parents=True, exist_ok=True)
+    save_name = Path(file.filename).stem + ".yaml"
+    save_path = training_configs_dir / save_name
+    save_path.write_bytes(content)
+
+    return {"name": Path(file.filename).stem, "data": data}
 
 
 # -------------------------------------------------------------------------

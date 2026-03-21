@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ChevronDown, ChevronRight, StopCircle } from 'lucide-react'
-import { getDatasets, startTraining, cancelTraining, getConfigs, getArtifacts, getBaseModels, downloadBaseModel, importFromHuggingFace, Dataset, ConfigInfo, ArtifactEntry } from '../api/client'
+import { ChevronDown, ChevronRight, StopCircle, Upload } from 'lucide-react'
+import { getDatasets, startTraining, cancelTraining, getConfigs, getArtifacts, getBaseModels, downloadBaseModel, importFromHuggingFace, uploadTrainingYaml, Dataset, ConfigInfo, ArtifactEntry } from '../api/client'
 import { useTrainingSSE } from '../hooks/useTrainingSSE'
 
 export default function StartTraining() {
@@ -537,23 +537,70 @@ export default function StartTraining() {
 
         {/* Advanced training config */}
         <div style={{ marginBottom: '20px' }}>
-          <button
-            onClick={() => setShowAdvanced(!showAdvanced)}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: 'var(--text-secondary)',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              fontSize: '13px',
-              padding: 0,
-            }}
-          >
-            {showAdvanced ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-            Training Parameters
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: showAdvanced ? '0' : undefined }}>
+            <button
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: 'var(--text-secondary)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                fontSize: '13px',
+                padding: 0,
+              }}
+            >
+              {showAdvanced ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              Training Parameters
+            </button>
+            <label style={{
+              display: 'inline-flex', alignItems: 'center', gap: '6px',
+              fontSize: '12px', color: 'var(--accent-purple)', cursor: 'pointer',
+              padding: '4px 12px', borderRadius: '8px',
+              background: 'rgba(139, 92, 246, 0.1)',
+              border: '1px solid rgba(139, 92, 246, 0.2)',
+              margin: 0, textTransform: 'none', letterSpacing: 'normal', fontWeight: 500,
+            }}>
+              <Upload size={13} />
+              Load YAML
+              <input
+                type="file"
+                accept=".yaml,.yml"
+                style={{ display: 'none' }}
+                onChange={async (e) => {
+                  const file = e.target.files?.[0]
+                  if (!file) return
+                  try {
+                    const result = await uploadTrainingYaml(file)
+                    const cfg = result.data
+                    // Add to training configs dropdown and select it
+                    if (result.name && !trainingConfigs.find(c => c.name === result.name)) {
+                      setTrainingConfigs(prev => [...prev, { name: result.name, display_name: result.name, path: '' }])
+                    }
+                    setSelectedTrainingConfig(result.name)
+                    if (cfg.learning_rate != null) setLearningRate(cfg.learning_rate)
+                    if (cfg.num_train_epochs != null) setNumEpochs(cfg.num_train_epochs)
+                    if (cfg.per_device_train_batch_size != null) setBatchSize(cfg.per_device_train_batch_size)
+                    if (cfg.gradient_accumulation_steps != null) setGradAccumSteps(cfg.gradient_accumulation_steps)
+                    if (cfg.max_steps != null) setMaxSteps(cfg.max_steps)
+                    if (cfg.optim) setOptimizer(cfg.optim)
+                    if (cfg.lr_scheduler_type) setLrScheduler(cfg.lr_scheduler_type)
+                    if (cfg.weight_decay != null) setWeightDecay(cfg.weight_decay)
+                    if (cfg.warmup_steps != null) setWarmupSteps(cfg.warmup_steps)
+                    if (cfg.max_grad_norm != null) setMaxGradNorm(cfg.max_grad_norm)
+                    if (cfg.loss_function) setLossFunction(cfg.loss_function)
+                    if (cfg.label_smoothing_factor != null) setLabelSmoothing(cfg.label_smoothing_factor)
+                    setShowAdvanced(true)
+                  } catch (err: any) {
+                    setError(err.message || 'Failed to parse YAML')
+                  }
+                  e.target.value = ''
+                }}
+              />
+            </label>
+          </div>
 
           {showAdvanced && (
             <div style={{ marginTop: '12px', paddingLeft: '18px' }}>
