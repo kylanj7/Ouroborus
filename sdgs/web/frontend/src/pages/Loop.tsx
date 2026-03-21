@@ -13,6 +13,7 @@ export default function Loop() {
   const store = useLoopStore()
   const { logs, done, clear } = useLoopSSE()
   const [showLogs, setShowLogs] = useState(false)
+  const [showYaml, setShowYaml] = useState(false)
   const logEndRef = useRef<HTMLDivElement>(null)
 
   // Config form state
@@ -34,6 +35,8 @@ export default function Loop() {
   const [optimizer, setOptimizer] = useState('adamw_8bit')
   const [lrScheduler, setLrScheduler] = useState('cosine')
   const [weightDecay, setWeightDecay] = useState(0.1)
+  const [warmupSteps, setWarmupSteps] = useState(100)
+  const [maxGradNorm, setMaxGradNorm] = useState(0.3)
   const [tallyModel, setTallyModel] = useState('gpt-oss:120b')
   const [seedDatasetId, setSeedDatasetId] = useState<number | null>(null)
   const [datasets, setDatasets] = useState<Dataset[]>([])
@@ -63,6 +66,52 @@ export default function Loop() {
 
   const isRunning = store.status === 'running'
   const canStart = !isRunning && !store.loading && seedDatasetId !== null
+
+  const generateYaml = () => {
+    const lines = [
+      `# Training Configuration`,
+      `# Generated from Ouroboros Evolution Loop`,
+      ``,
+      `# Model`,
+      `base_model: "${baseModel}"`,
+      `max_seq_length: ${maxSeqLength}`,
+      `lora_rank: ${loraRank}`,
+      `lora_alpha: ${loraAlpha}`,
+      ``,
+      `# Training`,
+      `per_device_train_batch_size: ${batchSize}`,
+      `gradient_accumulation_steps: ${gradAccumSteps}`,
+      `num_train_epochs: ${numEpochs}`,
+      `learning_rate: ${learningRate}`,
+      `optim: "${optimizer}"`,
+      `lr_scheduler_type: "${lrScheduler}"`,
+      `weight_decay: ${weightDecay}`,
+      `warmup_steps: ${warmupSteps || 100}`,
+      `max_grad_norm: ${maxGradNorm || 0.3}`,
+      ``,
+      `# Loss`,
+      `loss_function: "${lossFunction}"`,
+      `label_smoothing_factor: ${labelSmoothing}`,
+      ``,
+      `# Loop`,
+      `target_score: ${targetScore}`,
+      `max_cycles: ${maxCycles}`,
+      `gate_threshold: ${gateThreshold}`,
+      `min_pairs_per_cycle: ${minPairs}`,
+      `tally_model: "${tallyModel}"`,
+      ``,
+      `# Precision`,
+      `auto_precision: true`,
+      ``,
+      `# Logging`,
+      `logging_steps: 1`,
+      ``,
+      `# WandB`,
+      `wandb_enabled: true`,
+      `wandb_project_template: "{dataset_name}-{model_name}"`,
+    ]
+    return lines.join('\n')
+  }
 
   const baseVersion = store.cycles.filter(c => (c as any).gate_passed === true).length
 
@@ -402,6 +451,45 @@ export default function Loop() {
                 </select>
               </div>
             </div>
+
+        {/* Generate YAML */}
+        <div style={{ marginTop: 16, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <button
+              onClick={() => setShowYaml(!showYaml)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600, padding: 0, display: 'flex', alignItems: 'center', gap: 6 }}
+            >
+              {showYaml ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              Generated YAML
+            </button>
+            {showYaml && (
+              <button
+                onClick={() => {
+                  const yaml = generateYaml()
+                  navigator.clipboard.writeText(yaml)
+                }}
+                style={{
+                  fontSize: 12, padding: '4px 12px', borderRadius: 8,
+                  background: 'rgba(74, 222, 128, 0.1)', border: '1px solid rgba(74, 222, 128, 0.2)',
+                  color: 'var(--accent-green)', cursor: 'pointer', fontWeight: 500,
+                }}
+              >
+                Copy to Clipboard
+              </button>
+            )}
+          </div>
+          {showYaml && (
+            <pre style={{
+              marginTop: 8, padding: 16, borderRadius: 10,
+              background: 'rgba(2, 6, 18, 0.8)', border: '1px solid var(--border-card)',
+              fontSize: 12, lineHeight: 1.7, color: 'var(--text-secondary)',
+              overflow: 'auto', maxHeight: 400,
+              fontFamily: "'JetBrains Mono', 'Fira Code', monospace',",
+            }}>
+              {generateYaml()}
+            </pre>
+          )}
+        </div>
       </div>
 
       {/* Error display */}
