@@ -22,7 +22,7 @@ from sdgs.loop.quality_gate import cleanup_checkpoints, evaluate_gate, rollback_
 from sdgs.loop.retriever import extract_paper_text, retrieve_papers
 from sdgs.loop.state_v2 import CycleRecord, LoopStateStore, Stage, StopReason
 from sdgs.loop.tally_agent import run_tally
-from sdgs.loop.vram import unload_model
+from sdgs.loop.vram import unload_all_models, unload_model
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +100,7 @@ class ClosedLoopOrchestrator:
         # [0] BASELINE -- benchmark unmodified base model
         # ---------------------------------------------------------------
         self._state.update_stage(loop_id, 0, Stage.BASELINE)
+        unload_all_models()  # free Ollama VRAM before loading HF model
         logger.info("Cycle 0: BASELINE benchmark on %s", self._base_model_path)
 
         t0 = time.time()
@@ -226,9 +227,10 @@ class ClosedLoopOrchestrator:
                             time.time() - t0, len(accepted), len(rejects))
 
                 # Free curation model VRAM
-                unload_model(self._config.curation.model)
+                unload_all_models()
 
             # [4] TRAINING
+            unload_all_models()  # ensure Ollama VRAM is clear before HF training
             self._state.update_stage(loop_id, cycle, Stage.TRAINING)
             t0 = time.time()
             adapter_path, training_loss = self._run_training(
@@ -248,6 +250,7 @@ class ClosedLoopOrchestrator:
                         time.time() - t0, merged_model_path)
 
             # [6] EVALUATING
+            unload_all_models()  # ensure Ollama VRAM is clear before HF benchmark
             self._state.update_stage(loop_id, cycle, Stage.EVALUATING)
             t0 = time.time()
             eval_result = run_benchmarks(merged_model_path, suites, batch_size)
