@@ -573,6 +573,8 @@ export interface StartTrainingRequest {
   batch_size?: number
   gradient_accumulation_steps?: number
   max_steps?: number
+  loss_function?: string
+  label_smoothing?: number
   dataset_config_name?: string | null
   model_config_name?: string | null
   training_config_name?: string | null

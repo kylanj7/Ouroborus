@@ -469,6 +469,8 @@ def start_training(
         "per_device_train_batch_size": req.batch_size,
         "gradient_accumulation_steps": req.gradient_accumulation_steps,
         "max_steps": req.max_steps,
+        "loss_function": req.loss_function,
+        "label_smoothing_factor": req.label_smoothing,
     }
 
     # Capture for closure

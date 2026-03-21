@@ -279,6 +279,8 @@ class StartTrainingRequest(BaseModel):
     batch_size: int = 32
     gradient_accumulation_steps: int = 4
     max_steps: int = -1
+    loss_function: str = "cross_entropy"
+    label_smoothing: float = 0.0
     # Config-driven mode: specify YAML config names instead of individual params
     dataset_config_name: str | None = None   # e.g. "quantum"
     model_config_name: str | None = None     # e.g. "qwen2.5-14b-instruct"

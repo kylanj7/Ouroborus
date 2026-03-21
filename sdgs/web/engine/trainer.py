@@ -698,12 +698,14 @@ class QwenTrainer:
             eval_steps=eval_steps,
             push_to_hub=tcfg.get("push_to_hub", False),
             report_to=self._resolve_report_to(),
+            label_smoothing_factor=tcfg.get("label_smoothing_factor", 0.0),
         )
 
         callbacks = []
         if self.on_metric:
             callbacks.append(MetricsCallback(self.on_metric, self.knobs))
 
+        loss_fn_name = tcfg.get("loss_function", "cross_entropy")
         trainer = SFTTrainer(
             model=self.model,
             train_dataset=self.train_dataset,
@@ -711,6 +713,10 @@ class QwenTrainer:
             args=training_args,
             callbacks=callbacks or None,
         )
+
+        # Override compute_loss for non-default loss functions
+        if loss_fn_name != "cross_entropy":
+            trainer.compute_loss = self._make_custom_loss(loss_fn_name, trainer.compute_loss)
 
         print("Starting training...")
         trainer_stats = trainer.train(
@@ -727,6 +733,49 @@ class QwenTrainer:
             "_trainer_stats": trainer_stats,
         }
         return stats
+
+    # ------------------------------------------------------------------
+    # Custom loss functions
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _make_custom_loss(loss_fn_name: str, default_compute_loss):
+        """Return a compute_loss function that uses the specified loss."""
+        import torch.nn.functional as F
+
+        def compute_loss(model, inputs, return_outputs=False, **kwargs):
+            labels = inputs.pop("labels")
+            outputs = model(**inputs)
+            logits = outputs.logits
+
+            # Shift for causal LM: predict next token
+            shift_logits = logits[..., :-1, :].contiguous()
+            shift_labels = labels[..., 1:].contiguous()
+
+            if loss_fn_name == "kl_div":
+                log_probs = F.log_softmax(shift_logits, dim=-1)
+                targets = F.one_hot(shift_labels.clamp(min=0), num_classes=shift_logits.size(-1)).float()
+                loss = F.kl_div(log_probs, targets, reduction="batchmean")
+            elif loss_fn_name == "focal":
+                alpha = 0.25
+                gamma = 2.0
+                ce = F.cross_entropy(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1), reduction="none")
+                pt = torch.exp(-ce)
+                loss = (alpha * (1 - pt) ** gamma * ce).mean()
+            elif loss_fn_name == "smooth_l1":
+                # Treat logits as regression targets (experimental)
+                targets = F.one_hot(shift_labels.clamp(min=0), num_classes=shift_logits.size(-1)).float()
+                loss = F.smooth_l1_loss(shift_logits, targets)
+            elif loss_fn_name == "nll":
+                log_probs = F.log_softmax(shift_logits, dim=-1)
+                loss = F.nll_loss(log_probs.view(-1, log_probs.size(-1)), shift_labels.view(-1))
+            else:
+                # Fallback to standard cross entropy
+                loss = F.cross_entropy(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+
+            return (loss, outputs) if return_outputs else loss
+
+        return compute_loss
 
     # ------------------------------------------------------------------
     # save_adapter

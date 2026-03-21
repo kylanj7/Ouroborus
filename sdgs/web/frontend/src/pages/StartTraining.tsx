@@ -49,6 +49,8 @@ export default function StartTraining() {
   const [batchSize, setBatchSize] = useState(32)
   const [gradAccumSteps, setGradAccumSteps] = useState(4)
   const [maxSteps, setMaxSteps] = useState(-1)
+  const [lossFunction, setLossFunction] = useState('cross_entropy')
+  const [labelSmoothing, setLabelSmoothing] = useState(0.0)
   const [checkpoints, setCheckpoints] = useState<ArtifactEntry[]>([])
   const [resumeCheckpoint, setResumeCheckpoint] = useState('')
   const [customCheckpoint, setCustomCheckpoint] = useState(false)
@@ -135,6 +137,8 @@ export default function StartTraining() {
             batch_size: batchSize,
             gradient_accumulation_steps: gradAccumSteps,
             max_steps: maxSteps,
+            loss_function: lossFunction,
+            label_smoothing: labelSmoothing,
             resume_from_checkpoint: resumeCheckpoint.trim() || undefined,
           }
       const run = await startTraining(payload)
@@ -585,15 +589,38 @@ export default function StartTraining() {
                   />
                 </div>
               </div>
-              <div style={{ marginTop: '12px' }}>
-                <label>Max Steps (-1 for unlimited)</label>
-                <input
-                  type="number"
-                  value={maxSteps}
-                  onChange={(e) => setMaxSteps(parseInt(e.target.value) || -1)}
-                  disabled={submitting}
-                  style={{ width: '120px' }}
-                />
+              <div style={{ marginTop: '12px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
+                <div>
+                  <label>Max Steps (-1 for unlimited)</label>
+                  <input
+                    type="number"
+                    value={maxSteps}
+                    onChange={(e) => setMaxSteps(parseInt(e.target.value) || -1)}
+                    disabled={submitting}
+                  />
+                </div>
+                <div>
+                  <label>Loss Function</label>
+                  <select value={lossFunction} onChange={(e) => setLossFunction(e.target.value)} disabled={submitting}>
+                    <option value="cross_entropy">Cross Entropy</option>
+                    <option value="focal">Focal Loss</option>
+                    <option value="kl_div">KL Divergence</option>
+                    <option value="nll">Negative Log Likelihood</option>
+                    <option value="smooth_l1">Smooth L1</option>
+                  </select>
+                </div>
+                <div>
+                  <label>Label Smoothing</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    max="0.5"
+                    value={labelSmoothing}
+                    onChange={(e) => setLabelSmoothing(parseFloat(e.target.value) || 0)}
+                    disabled={submitting}
+                  />
+                </div>
               </div>
               <div style={{ marginTop: '12px' }}>
                 <label>Resume from Checkpoint</label>

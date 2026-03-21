@@ -29,6 +29,8 @@ export default function Loop() {
   const [maxCycles, setMaxCycles] = useState(50)
   const [gateThreshold, setGateThreshold] = useState(0.5)
   const [minPairs, setMinPairs] = useState(1000)
+  const [lossFunction, setLossFunction] = useState('cross_entropy')
+  const [labelSmoothing, setLabelSmoothing] = useState(0.0)
   const [tallyModel, setTallyModel] = useState('gpt-oss:120b')
   const [seedDatasetId, setSeedDatasetId] = useState<number | null>(null)
   const [datasets, setDatasets] = useState<Dataset[]>([])
@@ -249,6 +251,20 @@ export default function Loop() {
               <div>
                 <label style={labelStyle}>Tally Model</label>
                 <input value={tallyModel} onChange={e => setTallyModel(e.target.value)} style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>Loss Function</label>
+                <select value={lossFunction} onChange={e => setLossFunction(e.target.value)} style={inputStyle}>
+                  <option value="cross_entropy">Cross Entropy</option>
+                  <option value="focal">Focal Loss</option>
+                  <option value="kl_div">KL Divergence</option>
+                  <option value="nll">Negative Log Likelihood</option>
+                  <option value="smooth_l1">Smooth L1</option>
+                </select>
+              </div>
+              <div>
+                <label style={labelStyle}>Label Smoothing</label>
+                <input type="number" step="0.01" min="0" max="0.5" value={labelSmoothing} onChange={e => setLabelSmoothing(Number(e.target.value))} style={inputStyle} />
               </div>
 
               {/* Seed Dataset */}
