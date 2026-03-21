@@ -12,7 +12,7 @@ const mainNav = [
 ]
 
 const trainNav = [
-  { to: '/training', icon: Cpu, label: 'Training' },
+  { to: '/training', icon: Cpu, label: 'Fine-Tuning' },
   { to: '/evaluations', icon: FlaskConical, label: 'Evaluations' },
   { to: '/loop', icon: RefreshCw, label: 'Evolution Loop' },
 ]
@@ -211,7 +211,7 @@ export default function Sidebar() {
 
       <nav style={{ flex: 1, overflowY: 'auto', paddingTop: '8px' }}>
         {mainNav.map(item => <NavItem key={item.to} {...item} collapsed={collapsed} />)}
-        <SectionLabel collapsed={collapsed}>Training</SectionLabel>
+        <SectionLabel collapsed={collapsed}>Fine-Tuning</SectionLabel>
         {trainNav.map(item => <NavItem key={item.to} {...item} collapsed={collapsed} />)}
         <SectionLabel collapsed={collapsed}>Tools</SectionLabel>
         {utilNav.map(item => <NavItem key={item.to} {...item} collapsed={collapsed} />)}
