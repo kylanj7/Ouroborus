@@ -240,7 +240,7 @@ def start_closed_loop(config_path: str | None = None, seed_dataset_path: str | N
     proc = ctx.Process(
         target=_run_loop_subprocess,
         args=(loop_id, config_path, seed_dataset_path, mp_queue, os.getpid()),
-        daemon=True,
+        daemon=False,  # non-daemon so it can spawn child processes (benchmark, training, merge)
         name=f"closed-loop-{loop_id}",
     )
     proc.start()
