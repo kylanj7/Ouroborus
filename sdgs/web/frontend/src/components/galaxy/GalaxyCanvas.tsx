@@ -40,11 +40,15 @@ const _tmpColor = new THREE.Color()
 
 // ── Component ───────────────────────────────────────────────────────
 
+type ActiveFilter = 'paper' | 'qa' | null
+
 interface Props {
   nodes: any[]       // papers + datasets only (simulated by d3-force)
   links: any[]       // dataset_paper + keyword links only
   qaNodes: any[]     // QA nodes (NOT in force sim, positioned procedurally)
   qaParentMap: Map<string, string>  // qaNodeId -> parentNodeId
+  qaParentIds: Set<string>          // paper/dataset IDs that have QA children
+  activeFilter: ActiveFilter
   searchQuery: string
   onNodeClick: (node: any) => void
 }
@@ -54,7 +58,7 @@ interface InstanceRef {
   nodeIds: string[]
 }
 
-export default function GalaxyCanvas({ nodes, links, qaNodes, qaParentMap, searchQuery, onNodeClick }: Props) {
+export default function GalaxyCanvas({ nodes, links, qaNodes, qaParentMap, qaParentIds, activeFilter, searchQuery, onNodeClick }: Props) {
   const fgRef = useRef<any>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 })
@@ -70,6 +74,10 @@ export default function GalaxyCanvas({ nodes, links, qaNodes, qaParentMap, searc
   qaNodesRef.current = qaNodes
   const qaParentMapRef = useRef(qaParentMap)
   qaParentMapRef.current = qaParentMap
+  const activeFilterRef = useRef(activeFilter)
+  activeFilterRef.current = activeFilter
+  const qaParentIdsRef = useRef(qaParentIds)
+  qaParentIdsRef.current = qaParentIds
 
   // Pre-build node lookup (rebuilt on nodes change, not per tick)
   const nodeMapRef = useRef<Map<string, any>>(new Map())
@@ -97,13 +105,26 @@ export default function GalaxyCanvas({ nodes, links, qaNodes, qaParentMap, searc
     return () => window.removeEventListener('resize', updateSize)
   }, [])
 
-  // ── Renderer setup ──────────────────────────────────────────────
+  // ── GPU diagnostics ─────────────────────────────────────────────
+  const [gpuInfo, setGpuInfo] = useState<string>('')
+
   useEffect(() => {
     const fg = fgRef.current
     if (!fg) return
-    const renderer = fg.renderer()
+    const renderer = fg.renderer() as THREE.WebGLRenderer | undefined
     if (renderer) {
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+      const gl = renderer.getContext()
+      const ext = gl.getExtension('WEBGL_debug_renderer_info')
+      if (ext) {
+        const vendor = gl.getParameter(ext.UNMASKED_VENDOR_WEBGL)
+        const gpu = gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)
+        setGpuInfo(`${vendor} | ${gpu}`)
+        console.log('[Galaxy GPU]', vendor, gpu)
+      } else {
+        setGpuInfo('GPU info unavailable (extension blocked)')
+        console.warn('[Galaxy GPU] WEBGL_debug_renderer_info not available')
+      }
     }
   }, [])
 
@@ -268,21 +289,25 @@ export default function GalaxyCanvas({ nodes, links, qaNodes, qaParentMap, searc
 
   // ── Sync positions from force sim each tick (throttled) ───────────
   const syncPositions = useCallback(() => {
-    // Throttle: update every 2nd tick
+    // Throttle: update every 4th tick to reduce CPU pressure
     tickCountRef.current++
-    if (tickCountRef.current % 2 !== 0) return
+    if (tickCountRef.current % 4 !== 0) return
 
     const nodeMap = nodeMapRef.current
 
     // Sync paper instances
     const paperInst = paperInstanceRef.current
+    const filter = activeFilterRef.current
+    const parentIds = qaParentIdsRef.current
     if (paperInst) {
       const { mesh, nodeIds } = paperInst
       for (let i = 0; i < nodeIds.length; i++) {
         const node = nodeMap.get(nodeIds[i])
         if (!node) continue
         _dummy.position.set(node.x || 0, node.y || 0, node.z || 0)
-        _dummy.scale.setScalar(node.size || 4)
+        // Hide papers when QA filter active and paper has no QA children
+        const hidden = filter === 'qa' && !parentIds.has(nodeIds[i])
+        _dummy.scale.setScalar(hidden ? 0 : (node.size || 4))
         _dummy.updateMatrix()
         mesh.setMatrixAt(i, _dummy.matrix)
       }
@@ -331,7 +356,9 @@ export default function GalaxyCanvas({ nodes, links, qaNodes, qaParentMap, searc
         } else {
           _dummy.position.set(qaNode.x || 0, qaNode.y || 0, qaNode.z || 0)
         }
-        _dummy.scale.setScalar(qaNode.size || 2.5)
+        // Hide QA nodes when Papers filter active
+        const qaHidden = filter === 'paper'
+        _dummy.scale.setScalar(qaHidden ? 0 : (qaNode.size || 2.5))
         _dummy.updateMatrix()
         mesh.setMatrixAt(i, _dummy.matrix)
       }
@@ -360,14 +387,17 @@ export default function GalaxyCanvas({ nodes, links, qaNodes, qaParentMap, searc
     const wire = new THREE.Mesh(SHARED_GEO.datasetWire, wireMat)
     mesh.add(wire)
     return mesh
-  }, [searchQuery])
+  }, [searchQuery]) // activeFilter NOT a dep -- datasets always stay in sim
 
   // ── Memoized link styling ─────────────────────────────────────────
   const linkColorFn = useCallback((link: any) => {
+    // Hide links not relevant to current filter
+    if (activeFilter === 'paper' && (link.type === 'paper_qa' || link.type === 'dataset_qa')) return 'rgba(0,0,0,0)'
+    if (activeFilter === 'qa' && link.type === 'keyword') return 'rgba(0,0,0,0)'
     if (link.type === 'dataset_paper') return 'rgba(59, 130, 246, 0.25)'
     if (link.type === 'keyword') return 'rgba(255, 214, 102, 0.15)'
     return 'rgba(59, 130, 246, 0.1)'
-  }, [])
+  }, [activeFilter])
 
   const linkWidthFn = useCallback((link: any) =>
     link.type === 'dataset_paper' ? 1.2 : (link.weight || 0.3) * 2
@@ -392,7 +422,16 @@ export default function GalaxyCanvas({ nodes, links, qaNodes, qaParentMap, searc
 
   // ── Render ────────────────────────────────────────────────────────
   return (
-    <div ref={containerRef} style={{ width: '100%', height: '100%', background: '#020617' }}>
+    <div ref={containerRef} style={{ width: '100%', height: '100%', background: '#020617', position: 'relative' }}>
+      {gpuInfo && (
+        <div style={{
+          position: 'absolute', bottom: '8px', right: '8px', zIndex: 20,
+          fontSize: '10px', color: 'rgba(255,255,255,0.4)', fontFamily: 'monospace',
+          background: 'rgba(0,0,0,0.5)', padding: '4px 8px', borderRadius: '4px',
+        }}>
+          GPU: {gpuInfo}
+        </div>
+      )}
       {nodes.length === 0 && qaNodes.length === 0 ? (
         <div className="empty-state" style={{ paddingTop: '200px' }}>
           <h3>No data in Galaxy</h3>
@@ -413,10 +452,10 @@ export default function GalaxyCanvas({ nodes, links, qaNodes, qaParentMap, searc
           onNodeClick={onNodeClick}
           nodeLabel={getNodeLabel}
           onEngineTick={syncPositions}
-          cooldownTicks={100}
-          d3AlphaDecay={0.03}
-          d3VelocityDecay={0.4}
-          d3AlphaMin={0.008}
+          cooldownTicks={60}
+          d3AlphaDecay={0.05}
+          d3VelocityDecay={0.5}
+          d3AlphaMin={0.02}
           backgroundColor="#020617"
           showNavInfo={false}
           warmupTicks={40}

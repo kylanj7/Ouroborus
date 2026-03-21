@@ -16,54 +16,51 @@ export default function Galaxy() {
   }, [])
 
   // Split nodes into simulation nodes (papers+datasets) and QA nodes (rendered separately)
-  const { simNodes, simLinks, qaNodes, qaParentMap } = useMemo(() => {
-    if (!data) return { simNodes: [], simLinks: [], qaNodes: [], qaParentMap: new Map() }
+  // This is computed once from data -- NOT dependent on activeFilter,
+  // so changing filters never restarts the force simulation.
+  const { simNodes, simLinks, qaNodes, qaParentMap, qaParentIds } = useMemo(() => {
+    if (!data) return { simNodes: [], simLinks: [], qaNodes: [], qaParentMap: new Map(), qaParentIds: new Set<string>() }
 
-    let allNodes = [...data.nodes]
-    let allLinks = [...data.links]
-
-    // Filter by node type
-    if (activeFilter !== null) {
-      const filteredNodeIds = new Set(
-        allNodes.filter(n => n.type === activeFilter || n.type === 'dataset').map(n => n.id)
-      )
-      allNodes = allNodes.filter(n => filteredNodeIds.has(n.id))
-      allLinks = allLinks.filter(l => {
-        const src = typeof l.source === 'string' ? l.source : (l.source as any).id
-        const tgt = typeof l.target === 'string' ? l.target : (l.target as any).id
-        return filteredNodeIds.has(src) && filteredNodeIds.has(tgt)
-      })
-    }
+    const allNodes = [...data.nodes]
+    const allLinks = [...data.links]
 
     // Search highlighting
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase()
-      allNodes = allNodes.map(n => ({
-        ...n,
-        _match: n.label.toLowerCase().includes(q) ||
-          (n.type === 'qa' && n.instruction?.toLowerCase().includes(q)),
-      }))
-    }
+    const processed = searchQuery
+      ? allNodes.map(n => ({
+          ...n,
+          _match: n.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            (n.type === 'qa' && n.instruction?.toLowerCase().includes(searchQuery.toLowerCase())),
+        }))
+      : allNodes
 
     // Separate QA nodes out of the force simulation
-    const sNodes = allNodes.filter(n => n.type !== 'qa')
-    const qNodes = allNodes.filter(n => n.type === 'qa')
+    const sNodes = processed.filter(n => n.type !== 'qa')
+    const qNodes = processed.filter(n => n.type === 'qa')
 
     // Build parent map from QA links (paper_qa / dataset_qa)
     const parentMap = new Map<string, string>()
+    const pIds = new Set<string>()
     for (const link of allLinks) {
       if (link.type === 'paper_qa' || link.type === 'dataset_qa') {
         const src = typeof link.source === 'string' ? link.source : (link.source as any).id
         const tgt = typeof link.target === 'string' ? link.target : (link.target as any).id
         parentMap.set(tgt, src)
+        pIds.add(src)
       }
     }
 
     // Only pass non-QA links to the force simulation
     const sLinks = allLinks.filter(l => l.type !== 'paper_qa' && l.type !== 'dataset_qa')
 
-    return { simNodes: sNodes, simLinks: sLinks, qaNodes: qNodes, qaParentMap: parentMap }
-  }, [data, searchQuery, activeFilter])
+    return { simNodes: sNodes, simLinks: sLinks, qaNodes: qNodes, qaParentMap: parentMap, qaParentIds: pIds }
+  }, [data, searchQuery])
+
+  // Counts for the controls panel (always based on full data, not filtered)
+  const paperCount = useMemo(() =>
+    simNodes.filter(n => n.type === 'paper').length
+  , [simNodes])
+
+  const qaCount = qaNodes.length
 
   // Papers in the selected dataset's cluster (for dataset detail panel)
   const datasetPapers = useMemo(() => {
@@ -96,15 +93,15 @@ export default function Galaxy() {
 
   return (
     <div style={{ position: 'relative', height: 'calc(100vh - 48px)' }}>
-      {/* Controls overlay (search + cluster toggles) */}
+      {/* Controls overlay */}
       <div style={{
         position: 'absolute', top: '16px', left: '16px', zIndex: 10,
       }}>
         <GalaxyControls
           searchQuery={searchQuery}
           onSearch={setSearchQuery}
-          paperCount={simNodes.filter(n => n.type === 'paper').length}
-          qaCount={qaNodes.length}
+          paperCount={paperCount}
+          qaCount={qaCount}
           activeFilter={activeFilter}
           onToggleFilter={setActiveFilter}
         />
@@ -116,6 +113,8 @@ export default function Galaxy() {
         links={simLinks}
         qaNodes={qaNodes}
         qaParentMap={qaParentMap}
+        qaParentIds={qaParentIds}
+        activeFilter={activeFilter}
         searchQuery={searchQuery}
         onNodeClick={handleNodeClick}
       />
