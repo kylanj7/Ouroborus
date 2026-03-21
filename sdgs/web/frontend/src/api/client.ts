@@ -1070,6 +1070,11 @@ export const stopClosedLoop = () =>
     method: 'POST',
   })
 
+export const cancelClosedLoop = () =>
+  request<{ loop_id: string | null; status: string }>('/closed-loop/cancel', {
+    method: 'POST',
+  })
+
 export const getClosedLoopStatus = () =>
   request<ClosedLoopStatus>('/closed-loop/status')
 

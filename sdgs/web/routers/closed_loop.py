@@ -103,6 +103,37 @@ async def stop_loop(
     return {"loop_id": loop_id, "status": "stop_requested"}
 
 
+@router.post("/cancel")
+async def cancel_loop(
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Force-cancel any active or stale closed-loop run.
+
+    Clears the in-memory active loop ID and marks any running loop
+    in the state store as failed. Use this when a loop is stuck from
+    a previous server session.
+    """
+    from ..services.closed_loop_service import _cl_lock, _active_loop_id as _old_id
+    import sdgs.web.services.closed_loop_service as _cls
+
+    old_id = get_active_loop_id()
+
+    # Clear in-memory state
+    with _cl_lock:
+        _cls._active_loop_id = None
+
+    # Mark any running loop in the state store as failed
+    if old_id:
+        try:
+            state = _state_store.get_loop(old_id)
+            if state and state.status in ("running", "pending"):
+                _state_store.update_loop(old_id, status="failed", stop_reason="Force-cancelled by user")
+        except Exception:
+            pass
+
+    return {"loop_id": old_id, "status": "cancelled"}
+
+
 @router.get("/status")
 async def get_status():
     """Get the current closed-loop status."""

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Play, Square, ChevronDown, ChevronUp, Settings } from 'lucide-react'
+import { Play, Square, XCircle, ChevronDown, ChevronUp, Settings } from 'lucide-react'
 import { useLoopStore } from '../store/loopStore'
 import { useLoopSSE } from '../hooks/useLoopSSE'
 import StagePipeline from '../components/loop/StagePipeline'
@@ -149,6 +149,15 @@ export default function Loop() {
               <Square size={16} /> Stop
             </button>
           )}
+
+          <button
+            onClick={store.cancel}
+            disabled={store.loading}
+            style={btnStyle('cancel', store.loading)}
+            title="Force-cancel any stale or stuck loop run"
+          >
+            <XCircle size={16} /> Cancel
+          </button>
         </div>
       </div>
 
@@ -346,7 +355,7 @@ const inputStyle: React.CSSProperties = {
   boxSizing: 'border-box',
 }
 
-function btnStyle(variant: 'start' | 'stop', disabled: boolean): React.CSSProperties {
+function btnStyle(variant: 'start' | 'stop' | 'cancel', disabled: boolean): React.CSSProperties {
   const base: React.CSSProperties = {
     display: 'inline-flex',
     alignItems: 'center',
@@ -366,6 +375,14 @@ function btnStyle(variant: 'start' | 'stop', disabled: boolean): React.CSSProper
       background: disabled ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.2)',
       color: 'var(--accent-green)',
       border: '1px solid var(--accent-green)',
+    }
+  }
+  if (variant === 'cancel') {
+    return {
+      ...base,
+      background: 'rgba(249, 115, 22, 0.15)',
+      color: '#f97316',
+      border: '1px solid #f97316',
     }
   }
   return {

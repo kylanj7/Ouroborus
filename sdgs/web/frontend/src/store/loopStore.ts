@@ -4,6 +4,7 @@ import {
   getClosedLoopHistory,
   startClosedLoop,
   stopClosedLoop,
+  cancelClosedLoop,
   type ClosedLoopCycle,
 } from '../api/client'
 
@@ -31,6 +32,7 @@ interface LoopState {
   fetchHistory: () => Promise<void>
   start: (configPath?: string) => Promise<string | null>
   stop: () => Promise<void>
+  cancel: () => Promise<void>
   setCurrentStage: (stage: string) => void
   setCurrentCycle: (cycle: number) => void
   setTallyResult: (data: Record<string, any>) => void
@@ -100,6 +102,18 @@ export const useLoopStore = create<LoopState>((set, get) => ({
     try {
       await stopClosedLoop()
       await get().fetchStatus()
+    } catch (e: any) {
+      set({ error: e.message })
+    } finally {
+      set({ loading: false })
+    }
+  },
+
+  cancel: async () => {
+    set({ loading: true, error: null })
+    try {
+      await cancelClosedLoop()
+      set({ loopId: null, status: 'idle', currentCycle: 0, currentStage: null, stopReason: null })
     } catch (e: any) {
       set({ error: e.message })
     } finally {
