@@ -22,7 +22,7 @@ from sdgs.loop.quality_gate import cleanup_checkpoints, evaluate_gate, rollback_
 from sdgs.loop.retriever import extract_paper_text, retrieve_papers
 from sdgs.loop.state_v2 import CycleRecord, LoopStateStore, Stage, StopReason
 from sdgs.loop.tally_agent import run_tally
-from sdgs.loop.vram import unload_all_models, unload_model
+from sdgs.loop.vram import ensure_model_loaded, unload_all_models, unload_model
 
 logger = logging.getLogger(__name__)
 
@@ -171,6 +171,8 @@ class ClosedLoopOrchestrator:
             else:
                 # [1] TALLYING
                 self._state.update_stage(loop_id, cycle, Stage.TALLYING)
+                # Pre-load tally model into GPU before the agent runs
+                ensure_model_loaded(self._config.tally.model)
                 t0 = time.time()
                 failed_questions = [q for q in per_question if not q.get("passed")]
                 history = self._logger.get_cycle_history()
@@ -206,6 +208,8 @@ class ClosedLoopOrchestrator:
 
                 # [3] CURATING
                 self._state.update_stage(loop_id, cycle, Stage.CURATING)
+                # Pre-load curation model into GPU
+                ensure_model_loaded(self._config.curation.model)
                 t0 = time.time()
                 verification_cfg = {
                     "citation_matching": self._config.curation.verification.citation_matching,
