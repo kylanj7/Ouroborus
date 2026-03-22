@@ -423,7 +423,7 @@ def generate_pairs(
     if use_chunk_tracing:
         try:
             from sentence_transformers import SentenceTransformer
-            embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+            embedding_model = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
             for paper in papers:
                 paper_chunks_for_embed = chunk_paper(paper.get("text", ""))
                 all_chunks.extend(paper_chunks_for_embed)
@@ -449,6 +449,7 @@ def generate_pairs(
             nli_pipeline = hf_pipeline(
                 "zero-shot-classification",
                 model=cfg.get("entailment_model", "facebook/bart-large-mnli"),
+                device="cpu",  # GPU is used by the curation LLM (Ollama)
             )
         except ImportError:
             log.warning("transformers not available -- skipping entailment checks")

@@ -286,6 +286,7 @@ def run_tally(
             if messages_out:
                 last_content = messages_out[-1].content
                 raw = last_content if isinstance(last_content, str) else str(last_content)
+                log.debug("Tally agent raw output (attempt %d): %s", attempt, raw[:2000])
                 parsed = parse_tally_output(raw)
                 log.info(
                     "Tally agent succeeded via parse_tally_output on attempt %d", attempt
@@ -296,6 +297,11 @@ def run_tally(
 
         except Exception as exc:  # noqa: BLE001
             log.warning("Tally ReAct agent attempt %d failed: %s", attempt, exc)
+            try:
+                if raw:
+                    log.warning("Raw LLM output was: %.1500s", raw)
+            except NameError:
+                pass
             last_exc = exc
 
     log.error(
