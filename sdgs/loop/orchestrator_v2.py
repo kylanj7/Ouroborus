@@ -36,33 +36,49 @@ def _train_worker(
 ) -> None:
     """Train in an isolated process. Writes results to a JSON file."""
     import json as _json
-    from sdgs.web.engine.trainer import QwenTrainer
-    trainer = QwenTrainer(
-        dataset_path=ds_path,
-        model_config={"model_name": model_name},
-        training_config={"output_dir": out_dir, "num_train_epochs": 1},
-    )
-    trainer.load_model()
-    trainer.prepare_dataset()
-    stats = trainer.train()
-    adapter_path_str = trainer.save_adapter(out_dir)
-    with open(res_file, "w") as f:
-        _json.dump({
-            "adapter_path": adapter_path_str,
-            "training_loss": stats.get("training_loss", 0.0),
-        }, f)
+    import traceback
+    try:
+        from sdgs.web.engine.trainer import QwenTrainer
+        trainer = QwenTrainer(
+            dataset_path=ds_path,
+            model_config={"model_name": model_name},
+            training_config={"output_dir": out_dir, "num_train_epochs": 1},
+        )
+        trainer.load_model()
+        trainer.prepare_dataset()
+        stats = trainer.train()
+        adapter_path_str = trainer.save_adapter(out_dir)
+        with open(res_file, "w") as f:
+            _json.dump({
+                "adapter_path": adapter_path_str,
+                "training_loss": stats.get("training_loss", 0.0),
+            }, f)
+    except Exception:
+        # Write error to file so parent can read it
+        err_file = res_file + ".error"
+        with open(err_file, "w") as f:
+            f.write(traceback.format_exc())
+        raise
 
 
 def _merge_worker(
-    adp_path: str, base_model: str, out_dir: str,
+    adp_path: str, base_model: str, out_dir: str, res_file: str = "",
 ) -> None:
     """Merge LoRA adapter in an isolated process."""
-    from sdgs.web.engine.merge_convert import merge_lora
-    merge_lora(
-        adapter_path=adp_path,
-        base_model=base_model,
-        output_dir=out_dir,
-    )
+    import traceback
+    try:
+        from sdgs.web.engine.merge_convert import merge_lora
+        merge_lora(
+            adapter_path=adp_path,
+            base_model=base_model,
+            output_dir=out_dir,
+        )
+    except Exception:
+        if res_file:
+            err_file = res_file + ".error"
+            with open(err_file, "w") as f:
+                f.write(traceback.format_exc())
+        raise
 
 
 class ClosedLoopOrchestrator:
@@ -424,7 +440,15 @@ class ClosedLoopOrchestrator:
         proc.join()
 
         if proc.exitcode != 0:
-            raise RuntimeError(f"Training subprocess exited with code {proc.exitcode}")
+            err_file = results_file + ".error"
+            error_detail = ""
+            if Path(err_file).exists():
+                error_detail = Path(err_file).read_text()
+                Path(err_file).unlink(missing_ok=True)
+                logger.error("Training subprocess error:\n%s", error_detail)
+            raise RuntimeError(
+                f"Training subprocess exited with code {proc.exitcode}\n{error_detail}"
+            )
 
         with open(results_file) as f:
             results = _json.load(f)
@@ -436,11 +460,14 @@ class ClosedLoopOrchestrator:
     def _run_merge(self, adapter_path: Path, output_dir: str) -> None:
         """Merge LoRA adapter in an isolated subprocess to fully release VRAM after."""
         import multiprocessing
+        import tempfile
+
+        err_file = tempfile.mktemp(suffix=".error", prefix="merge_")
 
         ctx = multiprocessing.get_context("spawn")
         proc = ctx.Process(
             target=_merge_worker,
-            args=(str(adapter_path), self._base_model_path, output_dir),
+            args=(str(adapter_path), self._base_model_path, output_dir, err_file),
             name="merge-worker",
         )
         logger.info("Starting merge subprocess")
@@ -448,7 +475,15 @@ class ClosedLoopOrchestrator:
         proc.join()
 
         if proc.exitcode != 0:
-            raise RuntimeError(f"Merge subprocess exited with code {proc.exitcode}")
+            error_detail = ""
+            if Path(err_file).exists():
+                error_detail = Path(err_file).read_text()
+                Path(err_file).unlink(missing_ok=True)
+                logger.error("Merge subprocess error:\n%s", error_detail)
+            raise RuntimeError(
+                f"Merge subprocess exited with code {proc.exitcode}\n{error_detail}"
+            )
+        Path(err_file).unlink(missing_ok=True)
         logger.info("Merge subprocess completed -- VRAM fully released")
 
     def _handle_fail_cap(
