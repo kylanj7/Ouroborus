@@ -57,6 +57,65 @@ def restart_ollama_service():
         logger.warning(f"Failed to restart Ollama service: {e}")
 
 
+def cleanup_gpu():
+    """Full GPU cleanup -- unload all Ollama models and free PyTorch CUDA memory.
+
+    Call this on loop failure/exit to ensure no VRAM is left allocated.
+    """
+    # 1. Unload all Ollama models
+    unload_all_models()
+
+    # 2. Free any PyTorch CUDA memory in this process
+    try:
+        import gc
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            gc.collect()
+            torch.cuda.empty_cache()
+            allocated = torch.cuda.memory_allocated() / 1e9
+            reserved = torch.cuda.memory_reserved() / 1e9
+            logger.info(
+                "PyTorch CUDA cleanup: allocated=%.2f GB, reserved=%.2f GB",
+                allocated, reserved,
+            )
+    except ImportError:
+        pass
+    except Exception as e:
+        logger.warning(f"PyTorch CUDA cleanup failed: {e}")
+
+    # 3. Kill any orphaned GPU processes spawned by this loop
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["nvidia-smi", "--query-compute-apps=pid", "--format=csv,noheader"],
+            capture_output=True, text=True, timeout=10,
+        )
+        import os
+        my_pid = os.getpid()
+        for line in result.stdout.strip().split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                pid = int(line)
+                # Check if this process is a child of us
+                ppid_result = subprocess.run(
+                    ["ps", "-o", "ppid=", "-p", str(pid)],
+                    capture_output=True, text=True, timeout=5,
+                )
+                ppid = int(ppid_result.stdout.strip())
+                if ppid == my_pid:
+                    os.kill(pid, 9)
+                    logger.info("Killed orphaned GPU child process PID=%d", pid)
+            except (ValueError, ProcessLookupError, OSError):
+                pass
+    except Exception as e:
+        logger.debug("Orphan GPU process check failed: %s", e)
+
+    logger.info("GPU cleanup complete")
+
+
 def ensure_model_loaded(model_name: str):
     """Ensure a model is loaded in Ollama GPU.
 

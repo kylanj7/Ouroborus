@@ -202,6 +202,13 @@ def _run_loop_subprocess(
         mp_queue.put({"type": "status", "data": "failed"})
 
     finally:
+        # Clean up all GPU resources on exit (success or failure)
+        try:
+            from sdgs.loop.vram import cleanup_gpu
+            root_logger.info("[closed-loop:%s] Running GPU cleanup", loop_id)
+            cleanup_gpu()
+        except Exception as cleanup_exc:
+            root_logger.warning("[closed-loop:%s] GPU cleanup failed: %s", loop_id, cleanup_exc)
         root_logger.info("[closed-loop:%s] Subprocess exiting", loop_id)
         root_logger.removeHandler(console_handler)
         root_logger.removeHandler(file_handler)
@@ -321,6 +328,14 @@ def force_cancel_loop() -> str | None:
         emit_cl_event(old_id, {"type": "status", "data": "cancelled"})
         emit_cl_event(old_id, {"type": "log", "data": "Force-cancelled by user"})
         finish_cl_stream(old_id)
+
+    # Clean up GPU resources after killing the subprocess
+    try:
+        from sdgs.loop.vram import cleanup_gpu
+        cleanup_gpu()
+        log.info("[closed-loop:%s] GPU cleanup after cancel", old_id)
+    except Exception as e:
+        log.warning("[closed-loop:%s] GPU cleanup failed: %s", old_id, e)
 
     return old_id
 
