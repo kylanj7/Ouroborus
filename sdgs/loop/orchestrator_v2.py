@@ -27,6 +27,44 @@ from sdgs.loop.vram import ensure_model_loaded, unload_all_models, unload_model
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Subprocess worker functions (must be top-level for spawn pickling)
+# ---------------------------------------------------------------------------
+
+def _train_worker(
+    ds_path: str, model_name: str, out_dir: str, res_file: str,
+) -> None:
+    """Train in an isolated process. Writes results to a JSON file."""
+    import json as _json
+    from sdgs.web.engine.trainer import QwenTrainer
+    trainer = QwenTrainer(
+        dataset_path=ds_path,
+        model_config={"model_name": model_name},
+        training_config={"output_dir": out_dir, "num_train_epochs": 1},
+    )
+    trainer.load_model()
+    trainer.prepare_dataset()
+    stats = trainer.train()
+    adapter_path_str = trainer.save_adapter(out_dir)
+    with open(res_file, "w") as f:
+        _json.dump({
+            "adapter_path": adapter_path_str,
+            "training_loss": stats.get("training_loss", 0.0),
+        }, f)
+
+
+def _merge_worker(
+    adp_path: str, base_model: str, out_dir: str,
+) -> None:
+    """Merge LoRA adapter in an isolated process."""
+    from sdgs.web.engine.merge_convert import merge_lora
+    merge_lora(
+        adapter_path=adp_path,
+        base_model=base_model,
+        output_dir=out_dir,
+    )
+
+
 class ClosedLoopOrchestrator:
     """Main orchestrator that drives the closed-loop training mechanism.
 
@@ -375,25 +413,6 @@ class ClosedLoopOrchestrator:
 
         results_file = tempfile.mktemp(suffix=".json", prefix="training_")
 
-        def _train_worker(
-            ds_path: str, model_name: str, out_dir: str, res_file: str,
-        ) -> None:
-            from sdgs.web.engine.trainer import QwenTrainer
-            trainer = QwenTrainer(
-                dataset_path=ds_path,
-                model_config={"model_name": model_name},
-                training_config={"output_dir": out_dir, "num_train_epochs": 1},
-            )
-            trainer.load_model()
-            trainer.prepare_dataset()
-            stats = trainer.train()
-            adapter_path_str = trainer.save_adapter(out_dir)
-            with open(res_file, "w") as f:
-                _json.dump({
-                    "adapter_path": adapter_path_str,
-                    "training_loss": stats.get("training_loss", 0.0),
-                }, f)
-
         ctx = multiprocessing.get_context("spawn")
         proc = ctx.Process(
             target=_train_worker,
@@ -417,16 +436,6 @@ class ClosedLoopOrchestrator:
     def _run_merge(self, adapter_path: Path, output_dir: str) -> None:
         """Merge LoRA adapter in an isolated subprocess to fully release VRAM after."""
         import multiprocessing
-
-        def _merge_worker(
-            adp_path: str, base_model: str, out_dir: str,
-        ) -> None:
-            from sdgs.web.engine.merge_convert import merge_lora
-            merge_lora(
-                adapter_path=adp_path,
-                base_model=base_model,
-                output_dir=out_dir,
-            )
 
         ctx = multiprocessing.get_context("spawn")
         proc = ctx.Process(
