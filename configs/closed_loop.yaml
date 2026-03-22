@@ -33,7 +33,7 @@ tally:
 curation:
   model: "gpt-oss:120b"
   provider: "ollama"
-  min_pairs_per_cycle: 1000
+  min_pairs_per_cycle: 3500
   max_pairs_per_cycle: -1
   format: "chain-of-thought"
   max_retries_per_pair: 3
