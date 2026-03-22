@@ -187,7 +187,7 @@ def check_citations(
 def check_entailment(
     steps: list[str],
     paper_chunks: list[str],
-    model_name: str = "microsoft/deberta-v3-base-mnli",
+    model_name: str = "facebook/bart-large-mnli",
     min_entailment_ratio: float = 0.5,
     nli_pipeline=None,
 ) -> dict:
@@ -448,7 +448,7 @@ def generate_pairs(
             from transformers import pipeline as hf_pipeline
             nli_pipeline = hf_pipeline(
                 "zero-shot-classification",
-                model=cfg.get("entailment_model", "microsoft/deberta-v3-base-mnli"),
+                model=cfg.get("entailment_model", "facebook/bart-large-mnli"),
             )
         except ImportError:
             log.warning("transformers not available -- skipping entailment checks")
