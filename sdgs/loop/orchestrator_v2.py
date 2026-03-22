@@ -130,74 +130,112 @@ class ClosedLoopOrchestrator:
     # Public API
     # ------------------------------------------------------------------
 
-    def run(self, loop_id: str | None = None) -> str:
+    # Stage ordering for resume support
+    STAGE_ORDER = [
+        Stage.TALLYING, Stage.RETRIEVING, Stage.CURATING,
+        Stage.TRAINING, Stage.MERGING, Stage.EVALUATING, Stage.GATING,
+    ]
+
+    def run(
+        self,
+        loop_id: str | None = None,
+        resume_from: Stage | None = None,
+        resume_loop_id: str | None = None,
+    ) -> str:
         """Execute the full closed-loop cycle.
 
         Args:
             loop_id: Optional identifier for this loop run.  Generated if
                 not provided.
+            resume_from: If set, skip BASELINE and all stages before this
+                one on the first cycle.  Subsequent cycles run normally.
+            resume_loop_id: Existing loop_id to resume.  When set, the
+                orchestrator reuses the existing DB state instead of
+                creating a new loop.
 
         Returns:
             The loop_id used for the run.
         """
-        if loop_id is None:
-            loop_id = uuid.uuid4().hex[:8]
+        # -- Resume vs fresh start --
+        resuming = resume_from is not None and resume_loop_id is not None
 
-        config_snapshot = asdict(self._config)
-        self._state.create_loop(loop_id, config_snapshot)
+        if resuming:
+            loop_id = resume_loop_id
+            existing = self._state.get_loop(loop_id)
+            if existing is None:
+                raise ValueError(
+                    f"Cannot resume: loop_id {loop_id!r} not found in state DB"
+                )
+            # Recover baseline average from cycle-0 record
+            for rec in existing.cycles:
+                if rec.cycle == 0:
+                    self._previous_average = compute_gate_score(rec.benchmark_scores)
+                    break
+            logger.info(
+                "Resuming loop %s from stage %s (baseline avg=%.2f)",
+                loop_id, resume_from.value, self._previous_average,
+            )
+        else:
+            if loop_id is None:
+                loop_id = uuid.uuid4().hex[:8]
+
+            config_snapshot = asdict(self._config)
+            self._state.create_loop(loop_id, config_snapshot)
 
         project_id = loop_id
         suites = self._config.benchmarks.suites
         batch_size = self._config.benchmarks.batch_size
 
         # ---------------------------------------------------------------
-        # [0] BASELINE -- benchmark unmodified base model
+        # [0] BASELINE -- benchmark unmodified base model (skip on resume)
         # ---------------------------------------------------------------
-        self._state.update_stage(loop_id, 0, Stage.BASELINE)
-        unload_all_models()  # free Ollama VRAM before loading HF model
-        logger.info("Cycle 0: BASELINE benchmark on %s", self._base_model_path)
+        per_question: list[dict] = []
 
-        t0 = time.time()
-        baseline_result = run_benchmarks(self._base_model_path, suites, batch_size)
-        baseline_scores = baseline_result["scores"]
-        baseline_avg = compute_gate_score(baseline_scores)
-        logger.info("BASELINE completed in %.1fs -- average=%.2f, scores=%s",
-                     time.time() - t0, baseline_avg, baseline_scores)
-        self._previous_average = baseline_avg
+        if not resuming:
+            self._state.update_stage(loop_id, 0, Stage.BASELINE)
+            unload_all_models()  # free Ollama VRAM before loading HF model
+            logger.info("Cycle 0: BASELINE benchmark on %s", self._base_model_path)
 
-        baseline_record = CycleRecord(
-            cycle=0,
-            benchmark_scores=baseline_scores,
-            gate_passed=None,
-            gate_delta=0.0,
-            consecutive_gate_failures=0,
-            merged_model_path=None,
-            tally_metadata={},
-            dataset_path=None,
-            dataset_size=0,
-            adapter_path=None,
-            training_loss=None,
-            started_at=datetime.datetime.utcnow().isoformat(),
-            completed_at=datetime.datetime.utcnow().isoformat(),
-        )
-        self._state.save_cycle(loop_id, baseline_record)
+            t0 = time.time()
+            baseline_result = run_benchmarks(self._base_model_path, suites, batch_size)
+            baseline_scores = baseline_result["scores"]
+            baseline_avg = compute_gate_score(baseline_scores)
+            logger.info("BASELINE completed in %.1fs -- average=%.2f, scores=%s",
+                         time.time() - t0, baseline_avg, baseline_scores)
+            self._previous_average = baseline_avg
 
-        self._logger.create_project(
-            project_id=project_id,
-            domain="closed-loop",
-            base_model=self._base_model_path,
-            baseline_score=baseline_avg,
-        )
-        self._logger.log_cycle({
-            "loop_id": loop_id,
-            "cycle": 0,
-            "stage": "baseline",
-            "scores": baseline_scores,
-            "average": baseline_avg,
-        })
+            baseline_record = CycleRecord(
+                cycle=0,
+                benchmark_scores=baseline_scores,
+                gate_passed=None,
+                gate_delta=0.0,
+                consecutive_gate_failures=0,
+                merged_model_path=None,
+                tally_metadata={},
+                dataset_path=None,
+                dataset_size=0,
+                adapter_path=None,
+                training_loss=None,
+                started_at=datetime.datetime.utcnow().isoformat(),
+                completed_at=datetime.datetime.utcnow().isoformat(),
+            )
+            self._state.save_cycle(loop_id, baseline_record)
 
-        # Keep per-question results from baseline for first tally
-        per_question = baseline_result.get("per_question", [])
+            self._logger.create_project(
+                project_id=project_id,
+                domain="closed-loop",
+                base_model=self._base_model_path,
+                baseline_score=baseline_avg,
+            )
+            self._logger.log_cycle({
+                "loop_id": loop_id,
+                "cycle": 0,
+                "stage": "baseline",
+                "scores": baseline_scores,
+                "average": baseline_avg,
+            })
+
+            per_question = baseline_result.get("per_question", [])
 
         # ---------------------------------------------------------------
         # Main loop: cycles 1 .. max_cycles
@@ -215,14 +253,37 @@ class ClosedLoopOrchestrator:
             cycle_t0 = time.time()
             logger.info("=== Cycle %d / %d ===", cycle, max_cycles)
 
-            # Use seed dataset for cycle 1 if provided
-            if cycle == 1 and self._seed_dataset_path:
+            # Determine which stages to skip on this cycle.
+            # Gate: execute stage S iff (S >= resume_from) or (cycle > 1).
+            # resume_from only applies to the very first cycle of a resumed run.
+            def _should_skip(stage: Stage) -> bool:
+                if not resuming or cycle > 1:
+                    return False
+                return self.STAGE_ORDER.index(stage) < self.STAGE_ORDER.index(resume_from)
+
+            # When resuming, load existing cycle data from DB for skipped stages
+            tally_metadata: dict = {}
+            dataset_path: Path | str = ""
+            accepted: list = []
+
+            if resuming and cycle == 1:
+                existing_state = self._state.get_loop(loop_id)
+                if existing_state:
+                    for rec in existing_state.cycles:
+                        if rec.cycle == cycle:
+                            tally_metadata = rec.tally_metadata or {}
+                            if rec.dataset_path:
+                                dataset_path = Path(rec.dataset_path)
+                            break
+
+            # Use seed dataset for cycle 1 if provided (and not resuming)
+            if not _should_skip(Stage.TALLYING) and cycle == 1 and self._seed_dataset_path:
                 logger.info("Using seed dataset: %s", self._seed_dataset_path)
                 dataset_path = Path(self._seed_dataset_path)
                 tally_metadata = {"seed_dataset": True}
                 accepted_count = sum(1 for _ in open(dataset_path))
                 logger.info("Seed dataset: %d pairs", accepted_count)
-            else:
+            elif not _should_skip(Stage.TALLYING):
                 # [1] TALLYING
                 self._state.update_stage(loop_id, cycle, Stage.TALLYING)
                 # Pre-load tally model into GPU before the agent runs
@@ -247,7 +308,10 @@ class ClosedLoopOrchestrator:
 
                 # Free tally model VRAM before next stage
                 unload_model(self._config.tally.model)
+            else:
+                logger.info("Skipping TALLYING (resume from %s)", resume_from.value)
 
+            if not _should_skip(Stage.RETRIEVING):
                 # [2] RETRIEVING
                 self._state.update_stage(loop_id, cycle, Stage.RETRIEVING)
                 t0 = time.time()
@@ -259,7 +323,10 @@ class ClosedLoopOrchestrator:
                 papers = extract_paper_text(papers)
                 logger.info("RETRIEVING completed in %.1fs -- %d papers from %s",
                             time.time() - t0, len(papers), self._config.retrieval.sources)
+            else:
+                logger.info("Skipping RETRIEVING (resume from %s)", resume_from.value)
 
+            if not _should_skip(Stage.CURATING):
                 # [3] CURATING
                 self._state.update_stage(loop_id, cycle, Stage.CURATING)
                 # Pre-load curation model into GPU
@@ -289,39 +356,70 @@ class ClosedLoopOrchestrator:
 
                 # Free curation model VRAM
                 unload_all_models()
+            else:
+                logger.info("Skipping CURATING (resume from %s)", resume_from.value)
+
+            # Initialize variables that may be set by skipped stages
+            adapter_path: Path | str = ""
+            training_loss: float = 0.0
+            merged_model_path: str | None = None
+            scores: dict = {}
+            current_avg: float = 0.0
+
+            # When resuming past TRAINING, recover adapter/merged paths from DB
+            if _should_skip(Stage.TRAINING) and resuming and cycle == 1:
+                existing_state = self._state.get_loop(loop_id)
+                if existing_state:
+                    for rec in existing_state.cycles:
+                        if rec.cycle == cycle:
+                            if rec.adapter_path:
+                                adapter_path = Path(rec.adapter_path)
+                            training_loss = rec.training_loss or 0.0
+                            if rec.merged_model_path:
+                                merged_model_path = rec.merged_model_path
+                            break
 
             # [4] TRAINING
-            unload_all_models()  # ensure Ollama VRAM is clear before HF training
-            self._state.update_stage(loop_id, cycle, Stage.TRAINING)
-            t0 = time.time()
-            adapter_path, training_loss = self._run_training(
-                str(dataset_path), cycle,
-            )
-            logger.info("TRAINING completed in %.1fs -- adapter=%s loss=%.4f",
-                        time.time() - t0, adapter_path, training_loss)
+            if not _should_skip(Stage.TRAINING):
+                unload_all_models()  # ensure Ollama VRAM is clear before HF training
+                self._state.update_stage(loop_id, cycle, Stage.TRAINING)
+                t0 = time.time()
+                adapter_path, training_loss = self._run_training(
+                    str(dataset_path), cycle,
+                )
+                logger.info("TRAINING completed in %.1fs -- adapter=%s loss=%.4f",
+                            time.time() - t0, adapter_path, training_loss)
+            else:
+                logger.info("Skipping TRAINING (resume from %s)", resume_from.value)
 
             # [5] MERGING
-            unload_all_models()  # ensure clean VRAM for merge (loads full FP16 model)
-            self._state.update_stage(loop_id, cycle, Stage.MERGING)
-            t0 = time.time()
-            self._current_version += 1
-            merged_dir = self._checkpoint_dir / f"base-v{self._current_version}"
-            self._run_merge(adapter_path, str(merged_dir))
-            merged_model_path = str(merged_dir)
-            logger.info("MERGING completed in %.1fs -- merged model at %s",
-                        time.time() - t0, merged_model_path)
+            if not _should_skip(Stage.MERGING):
+                unload_all_models()  # ensure clean VRAM for merge (loads full FP16 model)
+                self._state.update_stage(loop_id, cycle, Stage.MERGING)
+                t0 = time.time()
+                self._current_version += 1
+                merged_dir = self._checkpoint_dir / f"base-v{self._current_version}"
+                self._run_merge(adapter_path, str(merged_dir))
+                merged_model_path = str(merged_dir)
+                logger.info("MERGING completed in %.1fs -- merged model at %s",
+                            time.time() - t0, merged_model_path)
+            else:
+                logger.info("Skipping MERGING (resume from %s)", resume_from.value)
 
             # [6] EVALUATING
-            unload_all_models()  # ensure Ollama VRAM is clear before HF benchmark
-            self._state.update_stage(loop_id, cycle, Stage.EVALUATING)
-            t0 = time.time()
-            eval_result = run_benchmarks(merged_model_path, suites, batch_size)
-            scores = eval_result["scores"]
-            current_avg = compute_gate_score(scores)
-            per_question = eval_result.get("per_question", [])
-            logger.info("EVALUATING completed in %.1fs -- average=%.2f, scores=%s",
-                        time.time() - t0, current_avg, scores)
-            logger.info("Evaluation: average=%.2f (prev=%.2f)", current_avg, self._previous_average)
+            if not _should_skip(Stage.EVALUATING):
+                unload_all_models()  # ensure Ollama VRAM is clear before HF benchmark
+                self._state.update_stage(loop_id, cycle, Stage.EVALUATING)
+                t0 = time.time()
+                eval_result = run_benchmarks(merged_model_path, suites, batch_size)
+                scores = eval_result["scores"]
+                current_avg = compute_gate_score(scores)
+                per_question = eval_result.get("per_question", [])
+                logger.info("EVALUATING completed in %.1fs -- average=%.2f, scores=%s",
+                            time.time() - t0, current_avg, scores)
+                logger.info("Evaluation: average=%.2f (prev=%.2f)", current_avg, self._previous_average)
+            else:
+                logger.info("Skipping EVALUATING (resume from %s)", resume_from.value)
 
             # [7] GATING
             self._state.update_stage(loop_id, cycle, Stage.GATING)
@@ -404,6 +502,11 @@ class ClosedLoopOrchestrator:
                     loop_id, project_id, cycle, scores, tally_metadata,
                 )
                 return loop_id
+
+            # Clear resume flag after first cycle so subsequent cycles run fully
+            if resuming:
+                resuming = False
+                logger.info("Resume complete -- subsequent cycles will run full stage order")
 
         # Exhausted all cycles
         logger.info("Max cycles (%d) reached -- stopping", max_cycles)

@@ -102,6 +102,8 @@ def _run_loop_subprocess(
     mp_queue: multiprocessing.Queue,
     parent_pid: int = 0,
     overrides: dict | None = None,
+    resume_from: str | None = None,
+    resume_loop_id: str | None = None,
 ) -> None:
     """Entry point for the closed-loop subprocess.
 
@@ -196,7 +198,18 @@ def _run_loop_subprocess(
             config = apply_overrides(config, overrides)
             root_logger.info("[closed-loop:%s] Applied %d UI overrides", loop_id, len(overrides))
         orchestrator = ClosedLoopOrchestrator(config=config, seed_dataset_path=seed_dataset_path)
-        orchestrator.run(loop_id=loop_id)
+
+        # Convert resume_from string to Stage enum if provided
+        resume_stage = None
+        if resume_from:
+            from sdgs.loop.state_v2 import Stage
+            resume_stage = Stage(resume_from)
+
+        orchestrator.run(
+            loop_id=loop_id,
+            resume_from=resume_stage,
+            resume_loop_id=resume_loop_id,
+        )
         mp_queue.put({"type": "status", "data": "completed"})
 
     except Exception as exc:
@@ -226,8 +239,21 @@ def _run_loop_subprocess(
 # Orchestrator lifecycle
 # ---------------------------------------------------------------------------
 
-def start_closed_loop(config_path: str | None = None, seed_dataset_path: str | None = None, overrides: dict | None = None) -> str:
+def start_closed_loop(
+    config_path: str | None = None,
+    seed_dataset_path: str | None = None,
+    overrides: dict | None = None,
+    resume_from: str | None = None,
+    resume_loop_id: str | None = None,
+) -> str:
     """Start a new closed-loop run in a subprocess.
+
+    Args:
+        config_path: Path to YAML config.
+        seed_dataset_path: Path to seed dataset JSONL.
+        overrides: UI config overrides.
+        resume_from: Stage name to resume from (e.g. "retrieving").
+        resume_loop_id: Existing loop_id to resume.
 
     Raises RuntimeError if a loop is already active.
     """
@@ -238,7 +264,8 @@ def start_closed_loop(config_path: str | None = None, seed_dataset_path: str | N
             raise RuntimeError(
                 f"A closed-loop run is already active: {_active_loop_id}"
             )
-        loop_id = f"cl-{uuid4().hex[:8]}"
+        # Reuse existing loop_id when resuming, generate new one otherwise
+        loop_id = resume_loop_id if resume_loop_id else f"cl-{uuid4().hex[:8]}"
         _active_loop_id = loop_id
 
     init_cl_stream(loop_id)
@@ -251,7 +278,10 @@ def start_closed_loop(config_path: str | None = None, seed_dataset_path: str | N
 
     proc = ctx.Process(
         target=_run_loop_subprocess,
-        args=(loop_id, config_path, seed_dataset_path, mp_queue, os.getpid(), overrides),
+        args=(
+            loop_id, config_path, seed_dataset_path, mp_queue,
+            os.getpid(), overrides, resume_from, resume_loop_id,
+        ),
         daemon=False,  # non-daemon so it can spawn child processes (benchmark, training, merge)
         name=f"closed-loop-{loop_id}",
     )

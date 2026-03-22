@@ -41,6 +41,8 @@ class ClosedLoopStartRequest(BaseModel):
     config_path: str | None = None
     seed_dataset_id: int | None = None
     overrides: dict | None = None
+    resume_from: str | None = None
+    resume_loop_id: str | None = None
 
 
 # ------------------------------------------------------------------
@@ -113,8 +115,22 @@ async def start_loop(
         finally:
             db.close()
 
+    # Validate resume request
+    if req.resume_from and not req.resume_loop_id:
+        raise HTTPException(400, "resume_loop_id required when resume_from is set")
+    if req.resume_loop_id:
+        existing = _state_store.get_loop(req.resume_loop_id)
+        if existing is None:
+            raise HTTPException(404, f"Loop {req.resume_loop_id} not found in state DB")
+
     try:
-        loop_id = start_closed_loop(config_path=req.config_path, seed_dataset_path=seed_dataset_path, overrides=req.overrides)
+        loop_id = start_closed_loop(
+            config_path=req.config_path,
+            seed_dataset_path=seed_dataset_path,
+            overrides=req.overrides,
+            resume_from=req.resume_from,
+            resume_loop_id=req.resume_loop_id,
+        )
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     except (FileNotFoundError, ValueError) as exc:
