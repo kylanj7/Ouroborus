@@ -315,8 +315,36 @@ def force_cancel_loop() -> str | None:
         _active_process = None
         _active_pid = None
 
-    # Kill the subprocess and all its children
+    # Kill the subprocess and ALL its children (entire process tree)
     if pid is not None:
+        import subprocess as _sp
+        try:
+            # Find all descendant PIDs and kill them
+            result = _sp.run(
+                ["pgrep", "-P", str(pid)],
+                capture_output=True, text=True, timeout=5,
+            )
+            child_pids = [int(p) for p in result.stdout.strip().split("\n") if p.strip()]
+            for cpid in child_pids:
+                try:
+                    # Also kill grandchildren
+                    gc_result = _sp.run(
+                        ["pgrep", "-P", str(cpid)],
+                        capture_output=True, text=True, timeout=5,
+                    )
+                    for gcpid in [int(p) for p in gc_result.stdout.strip().split("\n") if p.strip()]:
+                        try:
+                            os.kill(gcpid, signal.SIGKILL)
+                            log.info("[closed-loop:%s] Killed grandchild PID=%s", old_id, gcpid)
+                        except (ProcessLookupError, OSError):
+                            pass
+                    os.kill(cpid, signal.SIGKILL)
+                    log.info("[closed-loop:%s] Killed child PID=%s", old_id, cpid)
+                except (ProcessLookupError, OSError):
+                    pass
+        except Exception:
+            pass
+
         try:
             os.kill(pid, signal.SIGKILL)
             log.info("[closed-loop:%s] Killed subprocess PID=%s", old_id, pid)
