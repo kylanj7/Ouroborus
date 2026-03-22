@@ -40,6 +40,7 @@ _EMPTY_SENTINEL = object()
 class ClosedLoopStartRequest(BaseModel):
     config_path: str | None = None
     seed_dataset_id: int | None = None
+    overrides: dict | None = None
 
 
 # ------------------------------------------------------------------
@@ -113,7 +114,7 @@ async def start_loop(
             db.close()
 
     try:
-        loop_id = start_closed_loop(config_path=req.config_path, seed_dataset_path=seed_dataset_path)
+        loop_id = start_closed_loop(config_path=req.config_path, seed_dataset_path=seed_dataset_path, overrides=req.overrides)
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     except (FileNotFoundError, ValueError) as exc:
@@ -227,6 +228,10 @@ async def closed_loop_events(last_id: int = Query(-1)):
                 if item is None:
                     yield f"id: {event_id}\ndata: {json.dumps({'type': 'done', 'data': 'stream_end'})}\n\n"
                     return
+                # Skip events already sent from the stored log replay
+                item_id = item.get("id", event_id)
+                if item_id < event_id:
+                    continue
                 yield f"id: {event_id}\ndata: {json.dumps(item)}\n\n"
                 event_id += 1
             except asyncio.CancelledError:

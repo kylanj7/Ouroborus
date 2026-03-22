@@ -186,3 +186,53 @@ def load_closed_loop_config(path: Path | str | None = None) -> ClosedLoopConfig:
         logging=_dataclass_from_dict(LoggingConfig, raw.get("logging")),
         termination=_dataclass_from_dict(TerminationConfig, raw.get("termination")),
     )
+
+
+def apply_overrides(config: ClosedLoopConfig, overrides: dict[str, Any]) -> ClosedLoopConfig:
+    """Apply UI form overrides on top of a loaded config.
+
+    Maps flat UI field names to the nested config structure.
+    Unknown keys are silently ignored.
+    """
+    if not overrides:
+        return config
+
+    # Training strategy
+    if "base_model" in overrides:
+        config.training.base_model = overrides["base_model"]
+    if "max_seq_length" in overrides:
+        config.training.max_seq_length = overrides["max_seq_length"]
+
+    # Termination
+    if "target_score" in overrides:
+        config.termination.target_score = float(overrides["target_score"])
+    if "max_cycles" in overrides:
+        config.termination.max_cycles = int(overrides["max_cycles"])
+
+    # Gate
+    if "gate_threshold" in overrides:
+        config.gate.improvement_threshold = float(overrides["gate_threshold"])
+    if "early_stopping_patience" in overrides:
+        config.gate.fail_cap = int(overrides["early_stopping_patience"])
+
+    # Tally
+    if "tally_model" in overrides:
+        config.tally.model = overrides["tally_model"]
+
+    # Curation
+    if "min_pairs" in overrides:
+        config.curation.min_pairs_per_cycle = int(overrides["min_pairs"])
+
+    # Training hyperparameters (stored as extra attrs on training config)
+    training_keys = [
+        "learning_rate", "num_epochs", "batch_size", "gradient_accumulation_steps",
+        "lora_rank", "lora_alpha", "lora_dropout", "rs_lora", "target_modules",
+        "quantization", "max_steps", "loss_function", "label_smoothing",
+        "optimizer", "lr_scheduler", "weight_decay", "warmup_ratio",
+        "max_grad_norm", "neftune_noise_alpha", "logging_steps", "eval_steps",
+    ]
+    for key in training_keys:
+        if key in overrides:
+            setattr(config.training, key, overrides[key])
+
+    return config

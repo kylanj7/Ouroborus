@@ -219,7 +219,40 @@ tally:
 
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button
-            onClick={() => { store.start(configPath); clear() }}
+            onClick={() => {
+              const overrides: Record<string, unknown> = {
+                base_model: baseModel,
+                learning_rate: parseFloat(learningRate) || 1e-5,
+                num_epochs: numEpochs,
+                batch_size: batchSize,
+                gradient_accumulation_steps: gradAccumSteps,
+                max_seq_length: maxSeqLength,
+                lora_rank: loraRank,
+                lora_alpha: loraAlpha,
+                lora_dropout: loraDropout,
+                target_modules: targetModules,
+                quantization: quantType,
+                max_steps: maxSteps,
+                loss_function: lossFunction,
+                label_smoothing: labelSmoothing,
+                optimizer: optimizer,
+                lr_scheduler: lrScheduler,
+                weight_decay: weightDecay,
+                warmup_ratio: warmupRatio,
+                max_grad_norm: maxGradNorm,
+                neftune_noise_alpha: neftuneNoiseAlpha,
+                logging_steps: loggingSteps,
+                eval_steps: evalSteps,
+                target_score: targetScore,
+                max_cycles: maxCycles,
+                gate_threshold: gateThreshold,
+                min_pairs: minPairs,
+                tally_model: tallyModel,
+                early_stopping_patience: earlyStoppingPatience,
+              }
+              store.start(configPath, null, overrides)
+              clear()
+            }}
             disabled={!canStart}
             style={btnStyle('start', !canStart)}
           >

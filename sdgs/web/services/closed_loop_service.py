@@ -101,6 +101,7 @@ def _run_loop_subprocess(
     seed_dataset_path: str | None,
     mp_queue: multiprocessing.Queue,
     parent_pid: int = 0,
+    overrides: dict | None = None,
 ) -> None:
     """Entry point for the closed-loop subprocess.
 
@@ -190,6 +191,10 @@ def _run_loop_subprocess(
 
         mp_queue.put({"type": "status", "data": "running"})
         config = load_closed_loop_config(config_path)
+        if overrides:
+            from sdgs.loop.config_v2 import apply_overrides
+            config = apply_overrides(config, overrides)
+            root_logger.info("[closed-loop:%s] Applied %d UI overrides", loop_id, len(overrides))
         orchestrator = ClosedLoopOrchestrator(config=config, seed_dataset_path=seed_dataset_path)
         orchestrator.run(loop_id=loop_id)
         mp_queue.put({"type": "status", "data": "completed"})
@@ -221,7 +226,7 @@ def _run_loop_subprocess(
 # Orchestrator lifecycle
 # ---------------------------------------------------------------------------
 
-def start_closed_loop(config_path: str | None = None, seed_dataset_path: str | None = None) -> str:
+def start_closed_loop(config_path: str | None = None, seed_dataset_path: str | None = None, overrides: dict | None = None) -> str:
     """Start a new closed-loop run in a subprocess.
 
     Raises RuntimeError if a loop is already active.
@@ -246,7 +251,7 @@ def start_closed_loop(config_path: str | None = None, seed_dataset_path: str | N
 
     proc = ctx.Process(
         target=_run_loop_subprocess,
-        args=(loop_id, config_path, seed_dataset_path, mp_queue, os.getpid()),
+        args=(loop_id, config_path, seed_dataset_path, mp_queue, os.getpid(), overrides),
         daemon=False,  # non-daemon so it can spawn child processes (benchmark, training, merge)
         name=f"closed-loop-{loop_id}",
     )
