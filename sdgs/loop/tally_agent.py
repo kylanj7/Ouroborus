@@ -12,30 +12,19 @@ from langgraph.prebuilt import create_react_agent
 log = logging.getLogger(__name__)
 
 TALLY_SYSTEM_PROMPT = """\
-You are an expert AI benchmark diagnostician. You will receive a list of questions \
-that a model answered incorrectly, along with the model's answers and the correct answers.
+You are an AI benchmark diagnostician. You receive questions a model got wrong.
 
-Your job is to:
-1. Analyze the failed questions carefully.
-2. Cluster them by the underlying knowledge gap they reveal.
-3. Diagnose the root cause for each cluster.
-4. Prioritize clusters by their impact on overall model performance.
-5. Generate targeted search queries that could retrieve training material to address each gap.
-6. Provide generation guidance that describes what kinds of new training examples would help most.
+Analyze failures, cluster by knowledge gap, generate search queries for papers.
 
-You MUST respond with valid JSON in exactly this format (no markdown, no preamble):
-{
-  "clusters": [
-    {
-      "gap_description": "<short label for the knowledge gap>",
-      "root_cause": "<explanation of why the model fails here>",
-      "affected_questions": ["<question text or id>", ...],
-      "priority_score": <float 0.0-1.0>
-    }
-  ],
-  "search_queries": ["<query 1>", "<query 2>", ...],
-  "generation_guidance": "<instructions for generating targeted training examples>"
-}
+CRITICAL OUTPUT RULES:
+- You MUST call the submit_analysis tool with your results.
+- If you cannot call the tool, output ONLY raw JSON -- no markdown, no tables, no explanation.
+- Do NOT use markdown tables. Do NOT use bullet points. Do NOT add any text before or after the JSON.
+- Every key must use double quotes. Every string value must use double quotes.
+- Your output must be parseable by json.loads() in Python.
+
+The JSON schema is:
+{"clusters": [{"gap_description": "string", "root_cause": "string", "affected_questions": ["string"], "priority_score": 0.0}], "search_queries": ["string"], "generation_guidance": "string"}
 """
 
 
