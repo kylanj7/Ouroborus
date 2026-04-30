@@ -468,17 +468,158 @@ Remaining for overhead:        ~2-5 GB
 
 ## CLI Reference
 
-| Command | Purpose |
-|---------|---------|
-| `sdgs serve` | Launch the web interface |
-| `sdgs closed-loop start` | Start a closed-loop self-feeding training run |
-| `sdgs closed-loop status` | Show closed-loop status |
-| `sdgs closed-loop stop` | Gracefully stop the closed loop |
-| `sdgs scrape` | Search and download papers from academic sources |
-| `sdgs generate` | Generate Q&A pairs from papers |
-| `sdgs filter` | Validate and heal generated datasets |
-| `sdgs qa` | Inspect dataset statistics |
-| `sdgs extract` | Extract data from HuggingFace, JSON, or JSONL |
+The `sdgs` command exposes the full pipeline -- paper search, dataset generation, filtering, evaluation, training-loop control, and the web server. Run `sdgs --help` or `sdgs <command> --help` for in-terminal help. Group commands like `loop` and `closed-loop` have their own subcommands documented below.
+
+| Group | Commands |
+|---|---|
+| Dataset pipeline | `extract`, `generate`, `filter`, `qa`, `scrape` |
+| Discovery | `providers`, `tasks` |
+| Evolution loop (legacy) | `loop start`, `loop status`, `loop stop`, `loop history` |
+| Closed-loop training | `closed-loop start`, `closed-loop status`, `closed-loop stop` |
+| Web | `serve` |
+
+### Dataset pipeline
+
+#### `sdgs extract`
+
+Extract Q&A data from a configured source (HuggingFace dataset, JSON, or JSONL) into a normalized JSON file ready for `generate`.
+
+| Flag | Default | Description |
+|---|---|---|
+| `--task` (required) | -- | Task config name (e.g. `quantum_reasoning`, `paper_qa`) |
+| `-o`, `--output` (required) | -- | Output JSON file path |
+| `-n`, `--sample` | all | Only extract first N examples |
+
+#### `sdgs generate`
+
+Run a configured task against any LLM provider to produce a reasoning JSONL dataset. Auto-resumes from the existing output file unless `--no-resume` is set.
+
+| Flag | Default | Description |
+|---|---|---|
+| `--task` (required) | -- | Task config name |
+| `--provider` (required) | -- | Provider name (`ollama`, `openai`, `anthropic`, `gemini`, `perplexity`) |
+| `--model` | provider default | Override default model for the provider |
+| `--api-key` | env var | API key (overrides env-var lookup) |
+| `-i`, `--input` (required) | -- | Input JSON file produced by `extract` |
+| `-o`, `--output` | `data/<task>_output.jsonl` | Output JSONL path |
+| `--test` | off | Generate N samples with detailed validation output (debug mode) |
+| `--no-resume` | off | Start fresh; do not resume from an existing output file |
+
+#### `sdgs filter`
+
+Validate and heal a generated JSONL dataset. By default runs in strict mode with healing enabled.
+
+```
+sdgs filter <input_file> [--output <path>] [--task <name>] [--lenient] [--no-heal]
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `<input_file>` (positional) | -- | JSONL dataset to filter |
+| `-o`, `--output` | input + `.filtered.jsonl` | Output JSONL path |
+| `--task` | -- | Task config to load domain-specific validation rules from |
+| `--lenient` | strict | Only reject critical failures (missing answer tags) |
+| `--no-heal` | heal on | Disable in-place healing of broken samples |
+
+#### `sdgs qa`
+
+Inspect and analyze a reasoning dataset -- show samples, statistics, or both.
+
+```
+sdgs qa <dataset> [-n <samples>] [-r] [-s] [--offset N] [--task <name>]
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `<dataset>` (positional) | -- | Path to JSONL dataset |
+| `-n`, `--samples` | `5` | Number of samples to show |
+| `-r`, `--random` | off | Random sampling instead of sequential |
+| `-s`, `--stats` | off | Show statistics only, skip sample dump |
+| `--offset` | `0` | Start from this sample index |
+| `--task` | -- | Task config to load topic keywords from |
+
+#### `sdgs scrape`
+
+Search scholarly papers (arXiv, Semantic Scholar, OpenAlex, CORE), extract full text, and generate Q&A pairs in one step.
+
+| Flag | Default | Description |
+|---|---|---|
+| `--topic` (required) | -- | Research topic to search for |
+| `--provider` | -- | LLM provider for Q&A generation (required unless `--collect-only`) |
+| `--model` | provider default | Override default model |
+| `--api-key` | env var | API key (overrides env-var lookup) |
+| `--task` | `paper_qa` | Task config name for generation prompts |
+| `--max-papers` | `20` | Max papers to search for |
+| `--top-n` | `5` | Fetch full text for top N papers (rest use abstracts) |
+| `-o`, `--output` (required) | -- | Output JSONL path |
+| `--collect-only` | off | Only collect paper metadata, skip generation |
+
+### Discovery
+
+#### `sdgs providers`
+
+List all configured LLM providers, their default models, and which env var holds the API key.
+
+#### `sdgs tasks`
+
+List all available task configs from `configs/tasks/*.yaml`.
+
+### Evolution loop (legacy)
+
+The original evolution loop -- generate -> train -> evaluate -> feedback against a QFTL backend. Superseded by `closed-loop` for the merge-and-continue benchmark-driven flow, but retained for QFTL-backed runs.
+
+#### `sdgs loop start`
+
+| Flag | Default | Description |
+|---|---|---|
+| `--config` | `configs/loop.yaml` | Path to loop config YAML |
+
+#### `sdgs loop status`
+
+Show the status of the most recent evolution loop, including a per-evolution score history table.
+
+#### `sdgs loop stop`
+
+Request a graceful stop of the currently running loop. The loop halts after the current stage completes.
+
+#### `sdgs loop history`
+
+| Flag | Default | Description |
+|---|---|---|
+| `--limit` | `10` | Number of loops to show |
+
+### Closed-loop training
+
+The merge-and-continue self-feeding training loop: benchmark -> tally -> retrieve -> curate -> train -> merge -> evaluate -> gate. See [How the Closed Loop Works](#how-the-closed-loop-works) above for the full cycle.
+
+#### `sdgs closed-loop start`
+
+| Flag | Default | Description |
+|---|---|---|
+| `--config` | `configs/closed_loop.yaml` | Path to closed-loop config YAML |
+
+On start, prints base model, benchmark suites, and tally model. On finish, prints final benchmark score and cycle count.
+
+#### `sdgs closed-loop status`
+
+Show the active closed-loop run -- current cycle, stage, last benchmark score, and whether the most recent gate passed.
+
+#### `sdgs closed-loop stop`
+
+Request a graceful stop. The loop halts after the current stage completes (the in-progress cycle is not abandoned mid-stage).
+
+### Web server
+
+#### `sdgs serve`
+
+Build the React frontend (unless `--skip-build`) and launch the FastAPI app via Uvicorn.
+
+| Flag | Default | Description |
+|---|---|---|
+| `--host` | `0.0.0.0` | Host interface to bind to |
+| `--port` | `8000` | Port to bind to |
+| `--reload` | off | Enable auto-reload for development |
+| `--skip-build` | build on | Skip the `npm run build` frontend step |
 
 ## Web API
 
